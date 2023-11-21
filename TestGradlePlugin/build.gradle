@@ -1,0 +1,13 @@
+plugins {
+    id 'java-gradle-plugin'
+}
+
+gradlePlugin {
+    plugins {
+        testGradlePlugin {
+            id = 'dev.turtywurty.testgradleplugin'
+            implementationClass = 'dev.turtywurty.testgradleplugin.TestGradlePlugin'
+            version = '1.0-SNAPSHOT'
+        }
+    }
+}

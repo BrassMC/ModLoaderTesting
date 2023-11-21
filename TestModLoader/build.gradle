@@ -1,0 +1,11 @@
+plugins {
+    id 'java'
+    id 'dev.turtywurty.testgradleplugin' version '1.0-SNAPSHOT'
+}
+
+group = 'dev.turtywurty.testmodloader'
+version = '1.0-SNAPSHOT'
+
+repositories {
+    mavenCentral()
+}
