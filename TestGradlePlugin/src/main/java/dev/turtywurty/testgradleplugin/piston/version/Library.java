@@ -1,15 +1,16 @@
 package dev.turtywurty.testgradleplugin.piston.version;
 
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
 import dev.turtywurty.testgradleplugin.TestGradlePlugin;
-import org.gradle.internal.impldep.com.google.gson.JsonArray;
-import org.gradle.internal.impldep.com.google.gson.JsonElement;
-import org.gradle.internal.impldep.com.google.gson.JsonObject;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 
-public record Library(Download artifact, String name, Optional<DownloadRules> rules) {
+public record Library(Download artifact, String name, Optional<List<DownloadRule>> rules) {
     public static List<Library> fromJsonArray(JsonArray json) {
         List<Library> libraries = new ArrayList<>();
         for (JsonElement jsonElement : json) {
@@ -38,10 +39,10 @@ public record Library(Download artifact, String name, Optional<DownloadRules> ru
 
         String name = json.get("name").getAsString();
 
-        Optional<DownloadRules> rules;
+        Optional<List<DownloadRule>> rules;
         if (json.has("rules")) {
-            JsonObject rulesJson = json.getAsJsonObject("rules");
-            rules = Optional.of(DownloadRules.fromJson(rulesJson));
+            JsonArray rulesJson = json.getAsJsonArray("rules");
+            rules = Optional.of(DownloadRule.fromJsonArray(rulesJson));
         } else {
             rules = Optional.empty();
         }
@@ -49,11 +50,11 @@ public record Library(Download artifact, String name, Optional<DownloadRules> ru
         return new Library(artifact, name, rules);
     }
 
-    public record DownloadRules(Action action, OperatingSystem os) {
-        public static DownloadRules fromJson(JsonObject json) {
+    public record DownloadRule(Action action, OperatingSystem os) {
+        public static DownloadRule fromJson(JsonObject json) {
             Action action;
             if (json.has("action")) {
-                action = Action.valueOf(json.get("action").getAsString());
+                action = Action.valueOf(json.get("action").getAsString().toUpperCase(Locale.ROOT));
             } else {
                 action = null;
             }
@@ -66,11 +67,23 @@ public record Library(Download artifact, String name, Optional<DownloadRules> ru
                 os = null;
             }
 
-            return new DownloadRules(action, os);
+            return new DownloadRule(action, os);
+        }
+
+        public static List<DownloadRule> fromJsonArray(JsonArray array) {
+            List<DownloadRule> rules = new ArrayList<>();
+            for (JsonElement jsonElement : array) {
+                if (!jsonElement.isJsonObject())
+                    continue;
+
+                rules.add(fromJson(jsonElement.getAsJsonObject()));
+            }
+
+            return rules;
         }
 
         public enum Action {
-            ALLOW, DISALLOW
+            ALLOW, DISALLOW;
         }
 
         public record OperatingSystem(String name) {

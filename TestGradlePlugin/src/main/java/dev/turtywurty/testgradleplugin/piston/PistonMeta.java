@@ -1,23 +1,59 @@
 package dev.turtywurty.testgradleplugin.piston;
 
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
 import dev.turtywurty.testgradleplugin.TestGradlePlugin;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.net.URL;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
 
-public record PistonMeta(PistonMetaLatestVersion latest,
-                         PistonMetaVersion[] versions) {
-    public static final PistonMeta SELF = loadMeta();
+public class PistonMeta {
+    private final PistonMetaLatestVersion latest;
+    private final List<PistonMetaVersion> versions = new ArrayList<>();
 
-    private static PistonMeta loadMeta() {
-        String url = "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json";
+    public PistonMeta(Path metaPath) {
+        try {
+            String json = Files.readString(metaPath);
+            System.out.println("Piston meta json: " + json);
+            JsonObject object = TestGradlePlugin.GSON.fromJson(json, JsonObject.class);
+            if(object.has("latest")) {
+                JsonObject latest = object.getAsJsonObject("latest");
+                this.latest = TestGradlePlugin.GSON.fromJson(latest, PistonMetaLatestVersion.class);
+            } else {
+                this.latest = null;
+            }
 
-        try(InputStream stream = new URL(url).openStream()) {
-            String json = new String(stream.readAllBytes());
-            return TestGradlePlugin.GSON.fromJson(json, PistonMeta.class);
+            if (object.has("versions")) {
+                JsonArray versions = object.getAsJsonArray("versions");
+                for (JsonElement version : versions) {
+                    this.versions.add(TestGradlePlugin.GSON.fromJson(version, PistonMetaVersion.class));
+                }
+            }
         } catch (IOException exception) {
             throw new RuntimeException("Failed to load piston meta!", exception);
+        }
+    }
+
+    public static final String META_URL = "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json";
+
+    public static void download(Path path) {
+        try(InputStream stream = new URL(META_URL).openStream()) {
+            String json = new String(stream.readAllBytes());
+            Files.createDirectories(path);
+            Path metaPath = path.resolve("version_manifest.json");
+            Files.writeString(metaPath, json);
+
+            System.out.println("Piston meta downloaded to: " + metaPath);
+        } catch (IOException exception) {
+            throw new RuntimeException("Failed to download piston meta!", exception);
         }
     }
 
@@ -29,5 +65,13 @@ public record PistonMeta(PistonMetaLatestVersion latest,
         }
 
         return null;
+    }
+
+    public PistonMetaLatestVersion latest() {
+        return this.latest;
+    }
+
+    public List<PistonMetaVersion> versions() {
+        return this.versions;
     }
 }

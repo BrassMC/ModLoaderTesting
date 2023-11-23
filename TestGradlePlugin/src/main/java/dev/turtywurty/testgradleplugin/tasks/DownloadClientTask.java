@@ -1,68 +1,51 @@
 package dev.turtywurty.testgradleplugin.tasks;
 
+import com.google.gson.JsonObject;
 import dev.turtywurty.testgradleplugin.TestGradlePlugin;
-import dev.turtywurty.testgradleplugin.piston.PistonMeta;
-import dev.turtywurty.testgradleplugin.piston.PistonMetaVersion;
 import dev.turtywurty.testgradleplugin.piston.version.Download;
 import dev.turtywurty.testgradleplugin.piston.version.VersionPackage;
 import org.gradle.api.DefaultTask;
-import org.gradle.api.tasks.Input;
-import org.gradle.api.tasks.TaskAction;
-import org.gradle.internal.impldep.com.google.gson.JsonObject;
+import org.gradle.api.file.DirectoryProperty;
+import org.gradle.api.provider.Property;
+import org.gradle.api.tasks.*;
 
-import java.io.File;
 import java.io.IOException;
-import java.io.InputStream;
-import java.net.URL;
+import java.nio.file.Files;
 import java.nio.file.Path;
 
+@CacheableTask
 public abstract class DownloadClientTask extends DefaultTask {
     @Input
-    public abstract String getVersion();
+    public abstract Property<String> getVersion();
 
-    @Input
-    public abstract String getOutput();
+    @OutputDirectory
+    @Optional
+    public abstract DirectoryProperty getOutputDir();
 
     @TaskAction
     public void downloadClient() {
-        System.out.println("Downloading client for version: " + getVersion() + "...");
+        Path versionPath = getOutputDir()
+                .orElse(getProject()
+                        .getLayout()
+                        .getBuildDirectory()
+                        .dir("minecraft")
+                        .get())
+                .get()
+                .getAsFile()
+                .toPath()
+                .resolve(getVersion().get());
 
-        PistonMeta versionMeta = PistonMeta.SELF;
-        PistonMetaVersion version = versionMeta.findVersion(getVersion());
-        if (version == null) {
-            System.out.println("Version not found!");
-            return;
-        }
+        Path versionJsonPath = versionPath.resolve("version.json");
 
-        System.out.println("Version found!");
-
-        VersionPackage versionPackage = downloadVersionPackage(version);
-        System.out.println("Version package downloaded!");
-        System.out.println("Version package: " + versionPackage);
+        VersionPackage versionPackage = VersionPackage.fromPath(versionJsonPath);
+        System.out.println("Version package path: " + versionJsonPath);
 
         Download clientDownload = versionPackage.downloads().client();
-        System.out.println("Client download: " + clientDownload);
+        System.out.println("Client download: " + clientDownload.url());
 
-        clientDownload.downloadToPath(Path.of(getOutput()));
-        System.out.println("Client downloaded!");
-        System.out.println("Client path: " + new File(getOutput()).getAbsolutePath());
+        Path jarPath = clientDownload.downloadToPath(versionPath);
+        System.out.println("Client jar downloaded to: " + jarPath);
 
         System.out.println("Done!");
-    }
-
-    private static VersionPackage downloadVersionPackage(PistonMetaVersion version) {
-        String url = version.url();
-        System.out.println("URL: " + url);
-
-        VersionPackage versionPackage;
-        try(InputStream inputStream = new URL(url).openStream()) {
-            String jsonStr = new String(inputStream.readAllBytes());
-            JsonObject json = TestGradlePlugin.GSON.fromJson(jsonStr, JsonObject.class);
-            versionPackage = VersionPackage.fromJson(json);
-        } catch (IOException exception) {
-            throw new RuntimeException("Failed to download client!", exception);
-        }
-
-        return versionPackage;
     }
 }

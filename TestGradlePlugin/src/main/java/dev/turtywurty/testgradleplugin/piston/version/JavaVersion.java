@@ -1,7 +1,7 @@
 package dev.turtywurty.testgradleplugin.piston.version;
 
+import com.google.gson.JsonObject;
 import dev.turtywurty.testgradleplugin.TestGradlePlugin;
-import org.gradle.internal.impldep.com.google.gson.JsonObject;
 
 public record JavaVersion(String component, int majorVersion) {
     public static JavaVersion fromJson(JsonObject json) {

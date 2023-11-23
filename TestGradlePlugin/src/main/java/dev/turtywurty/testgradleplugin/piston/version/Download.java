@@ -1,7 +1,7 @@
 package dev.turtywurty.testgradleplugin.piston.version;
 
+import com.google.gson.JsonObject;
 import dev.turtywurty.testgradleplugin.TestGradlePlugin;
-import org.gradle.internal.impldep.com.google.gson.JsonObject;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -14,14 +14,14 @@ public record Download(String sha1, long size, String url) {
         return TestGradlePlugin.GSON.fromJson(json, Download.class);
     }
 
-    public void downloadToPath(Path path) {
+    public Path downloadToPath(Path path) {
         String[] split = this.url.split("/");
         String fileName = split[split.length - 1];
 
-        downloadToPath(path, fileName);
+        return downloadToPath(path, fileName);
     }
 
-    public void downloadToPath(Path path, String fileName) {
+    public Path downloadToPath(Path path, String fileName) {
         Path resolved = path.resolve(fileName);
         System.out.println("Downloading " + this.url + " to " + resolved + "...");
 
@@ -37,5 +37,8 @@ public record Download(String sha1, long size, String url) {
         } catch (IOException exception) {
             throw new RuntimeException("Failed to download " + this.url + "!", exception);
         }
+
+        System.out.println("Downloaded " + this.url + " to " + resolved + "!");
+        return resolved;
     }
 }

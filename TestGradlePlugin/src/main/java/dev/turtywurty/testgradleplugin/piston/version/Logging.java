@@ -1,7 +1,7 @@
 package dev.turtywurty.testgradleplugin.piston.version;
 
+import com.google.gson.JsonObject;
 import dev.turtywurty.testgradleplugin.TestGradlePlugin;
-import org.gradle.internal.impldep.com.google.gson.JsonObject;
 
 public record Logging(Client client) {
     public static Logging fromJson(JsonObject json) {

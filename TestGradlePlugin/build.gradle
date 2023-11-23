@@ -1,13 +1,24 @@
 plugins {
     id 'java-gradle-plugin'
+    id 'maven-publish'
 }
+
+version = '1.0-SNAPSHOT'
+group = 'dev.turtywurty.testgradleplugin'
 
 gradlePlugin {
     plugins {
         testGradlePlugin {
             id = 'dev.turtywurty.testgradleplugin'
             implementationClass = 'dev.turtywurty.testgradleplugin.TestGradlePlugin'
-            version = '1.0-SNAPSHOT'
         }
     }
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    implementation 'com.google.code.gson:gson:2.10.1'
 }

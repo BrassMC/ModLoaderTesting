@@ -1,6 +1,6 @@
 package dev.turtywurty.testgradleplugin.piston.version;
 
-import org.gradle.internal.impldep.com.google.gson.JsonObject;
+import com.google.gson.JsonObject;
 
 public record Downloads(Download client, Download client_mappings, Download server, Download server_mappings) {
     public static Downloads fromJson(JsonObject json) {
