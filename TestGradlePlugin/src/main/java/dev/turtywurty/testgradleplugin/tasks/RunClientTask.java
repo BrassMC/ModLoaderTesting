@@ -48,9 +48,9 @@ public abstract class RunClientTask extends DefaultTask {
             throw new RuntimeException("Client jar does not exist!");
         }
 
-        Path clientMappingsPath = versionFolder.resolve("client-mappings.jar");
+        Path clientMappingsPath = versionFolder.resolve("client_mappings.txt");
         if (Files.notExists(clientMappingsPath)) {
-            throw new RuntimeException("Client mappings jar does not exist!");
+            throw new RuntimeException("Client mappings does not exist!");
         }
 
         Path runDir = getRunDir().get().getAsFile().toPath();
@@ -60,7 +60,7 @@ public abstract class RunClientTask extends DefaultTask {
 
         getProject().javaexec(javaExecSpec -> {
             javaExecSpec.getMainClass().set(versionPackage.mainClass());
-            javaExecSpec.setClasspath(getProject().files(clientJarPath, clientMappingsPath));
+            javaExecSpec.setClasspath(getProject().files(clientJarPath)); // TODO: Add libraries
             javaExecSpec.setWorkingDir(runDir.toFile());
             // TODO: Set game args
             // TODO: Set jvm args

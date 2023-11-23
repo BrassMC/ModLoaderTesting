@@ -35,8 +35,10 @@ public abstract class DownloadServerTask extends DefaultTask {
                 .toPath()
                 .resolve(getVersion().get());
 
-        VersionPackage versionPackage = readVersionPackage(versionPath);
-        System.out.println("Version package path: " + versionPath.resolve("version.json"));
+        Path versionJsonPath = versionPath.resolve("version.json");
+
+        VersionPackage versionPackage = VersionPackage.fromPath(versionJsonPath);
+        System.out.println("Version package path: " + versionJsonPath);
 
         Download serverDownload = versionPackage.downloads().server();
         System.out.println("Server download: " + serverDownload.url());
@@ -45,19 +47,5 @@ public abstract class DownloadServerTask extends DefaultTask {
         System.out.println("Server jar downloaded to: " + jarPath);
 
         System.out.println("Done!");
-    }
-
-    private VersionPackage readVersionPackage(Path versionPath) {
-        Path versionJsonPath = versionPath.resolve("version.json").toAbsolutePath();
-        VersionPackage versionPackage;
-        try {
-            String jsonStr = Files.readString(versionJsonPath);
-            JsonObject json = TestGradlePlugin.GSON.fromJson(jsonStr, JsonObject.class);
-            versionPackage = VersionPackage.fromJson(json);
-        } catch (IOException exception) {
-            throw new RuntimeException("Failed to download client!", exception);
-        }
-
-        return versionPackage;
     }
 }
