@@ -1,9 +1,10 @@
 pluginManagement {
     repositories {
-        maven {
-            url = uri('F:/ModLoaderTesting/TestGradlePlugin/build/repo')
-        }
+        mavenCentral()
+        mavenLocal()
     }
 }
 
 rootProject.name = 'TestModLoader'
+
+includeBuild('../TestGradlePlugin')
