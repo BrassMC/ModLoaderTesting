@@ -3,22 +3,19 @@ package dev.turtywurty.testgradleplugin.asset;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 public class AssetIndexHash {
-    private final List<AssetObject> assets = new ArrayList<>();
+    private final Map<String, AssetObject> assets = new HashMap<>();
 
-    public AssetIndexHash(Collection<AssetObject> assets) {
-        this.assets.addAll(assets);
+    public AssetIndexHash(Map<String, AssetObject> assets) {
+        this.assets.putAll(assets);
     }
 
     public AssetIndexHash() {}
 
     public static AssetIndexHash fromJson(JsonObject json) {
-        List<AssetObject> assets = new ArrayList<>();
+        Map<String, AssetObject> assets = new HashMap<>();
 
         JsonObject objects = json.getAsJsonObject("objects");
         for (Map.Entry<String, JsonElement> assetEntry : objects.entrySet()) {
@@ -29,13 +26,13 @@ public class AssetIndexHash {
             }
 
             JsonObject assetObject = assetElement.getAsJsonObject();
-            assets.add(AssetObject.fromJson(assetPath, assetObject));
+            assets.put(assetPath, AssetObject.fromJson(assetObject));
         }
 
         return new AssetIndexHash(assets);
     }
 
-    public List<AssetObject> getAssets() {
-        return this.assets;
+    public Map<String, AssetObject> getAssets() {
+        return Collections.unmodifiableMap(assets);
     }
 }

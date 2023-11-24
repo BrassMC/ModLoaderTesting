@@ -22,8 +22,8 @@ public record Download(String sha1, long size, String url) {
     }
 
     public Path downloadToPath(Path path, String fileName) {
-        Path resolved = path.resolve(fileName);
-        System.out.println("Downloading " + this.url + " to " + resolved + "...");
+        Path resolved = path.toAbsolutePath().resolve(fileName);
+        System.out.println("Downloading " + this.url + " to " + resolved);
 
         try {
             Files.createDirectories(resolved.getParent());
