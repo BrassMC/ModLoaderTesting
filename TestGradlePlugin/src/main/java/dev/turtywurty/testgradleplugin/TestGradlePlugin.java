@@ -74,6 +74,12 @@ public class TestGradlePlugin implements Plugin<Project> {
         downloadLibrariesTask.getOutputDir().set(cacheDir.toFile());
         downloadLibrariesTask.getVersion().set(minecraftVersion);
 
+        RemapClassesTask remapClassesTask = tasks.create("remapClasses", RemapClassesTask.class);
+        remapClassesTask.setGroup("minecraft");
+        remapClassesTask.setDescription("Remaps the Minecraft client and server jars.");
+        remapClassesTask.dependsOn(downloadClientTask, downloadServerTask, downloadClientMappingsTask, downloadServerMappingsTask);
+        remapClassesTask.getOutputDir().set(cacheDir.toFile());
+        remapClassesTask.getVersion().set(minecraftVersion);
 
         MergeJarTask mergeJarTask = tasks.create("mergeJar", MergeJarTask.class);
         mergeJarTask.setGroup("minecraft");
