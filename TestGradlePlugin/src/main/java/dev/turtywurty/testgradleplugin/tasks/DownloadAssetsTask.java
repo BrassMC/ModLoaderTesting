@@ -109,7 +109,7 @@ public abstract class DownloadAssetsTask extends DefaultTask {
                     Path minecraftAssetPath = minecraftAssets.resolve(asset.getPath());
 
                     if (Files.exists(assetPath) && HashingFunction.SHA1.hash(assetPath).equals(hash)) {
-                        System.out.println("Skipping asset " + path + " as it already exists!");
+                        // System.out.println("Skipping asset " + path + " as it already exists!");
                         continue;
                     }
 

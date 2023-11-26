@@ -74,6 +74,22 @@ public class TestGradlePlugin implements Plugin<Project> {
         downloadLibrariesTask.getOutputDir().set(cacheDir.toFile());
         downloadLibrariesTask.getVersion().set(minecraftVersion);
 
+
+        MergeJarTask mergeJarTask = tasks.create("mergeJar", MergeJarTask.class);
+        mergeJarTask.setGroup("minecraft");
+        mergeJarTask.setDescription("Merges the Minecraft client and server jars.");
+        mergeJarTask.dependsOn(remapClassesTask);
+        mergeJarTask.getOutputDir().set(cacheDir.toFile());
+        mergeJarTask.getVersion().set(minecraftVersion);
+
+        DecompileClientTask decompileClientTask = tasks.create("decompileClient", DecompileClientTask.class);
+        decompileClientTask.setGroup("minecraft");
+        decompileClientTask.setDescription("Decompiles the Minecraft client jar.");
+        decompileClientTask.dependsOn(downloadClientTask, downloadClientMappingsTask, downloadAssetsTask, downloadLibrariesTask);
+        decompileClientTask.getOutputDir().set(cacheDir.toFile());
+        decompileClientTask.getVersion().set(minecraftVersion);
+        decompileClientTask.getVineflowerVersion().set(extension.getVineflowerVersion());
+
         RunClientTask runClientTask = tasks.create("runClient", RunClientTask.class);
         runClientTask.setGroup("minecraft");
         runClientTask.setDescription("Runs the Minecraft client.");

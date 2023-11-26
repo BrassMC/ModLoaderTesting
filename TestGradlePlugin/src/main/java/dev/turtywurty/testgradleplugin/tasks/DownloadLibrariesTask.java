@@ -1,5 +1,6 @@
 package dev.turtywurty.testgradleplugin.tasks;
 
+import com.google.gson.JsonObject;
 import dev.turtywurty.testgradleplugin.HashingFunction;
 import dev.turtywurty.testgradleplugin.OperatingSystem;
 import dev.turtywurty.testgradleplugin.piston.version.Download;
@@ -12,10 +13,13 @@ import org.gradle.api.tasks.*;
 import org.jetbrains.annotations.NotNull;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 
 @CacheableTask
 public abstract class DownloadLibrariesTask extends DefaultTask {
@@ -50,12 +54,13 @@ public abstract class DownloadLibrariesTask extends DefaultTask {
         System.out.println("Libraries: " + libraries.size());
 
         Path minecraftLibrariesPath = OperatingSystem.getMinecraftDir().resolve("libraries");
-        if(Files.notExists(minecraftLibrariesPath)) {
+        if (Files.notExists(minecraftLibrariesPath)) {
             throw new RuntimeException("You need a version of Minecraft installed to download libraries!");
         }
 
         System.out.println("Minecraft libraries path: " + minecraftLibrariesPath);
 
+        Map<String, Path> libraryJars = new HashMap<>();
         for (Library library : libraries) {
             java.util.Optional<List<Library.DownloadRule>> rules = library.rules();
             if (rules.isPresent()) {
@@ -90,13 +95,14 @@ public abstract class DownloadLibrariesTask extends DefaultTask {
             Path libraryFile = libraryPath.resolve(fileName);
             System.out.println("Library path: " + libraryFile);
 
-            if(Files.exists(libraryFile) && HashingFunction.SHA1.hash(libraryFile).equals(artifact.sha1())) {
+            if (Files.exists(libraryFile) && HashingFunction.SHA1.hash(libraryFile).equals(artifact.sha1())) {
                 System.out.println("Skipping library: " + library.name());
+                libraryJars.put(library.name(), libraryFile);
                 continue;
             }
 
             Path minecraftLibraryPath = minecraftLibrariesPath.resolve(pathBuilder.toString()).resolve(fileName);
-            if(Files.exists(minecraftLibraryPath) && HashingFunction.SHA1.hash(minecraftLibraryPath).equals(artifact.sha1())) {
+            if (Files.exists(minecraftLibraryPath) && HashingFunction.SHA1.hash(minecraftLibraryPath).equals(artifact.sha1())) {
                 try {
                     Files.createDirectories(libraryPath);
                     Files.copy(minecraftLibraryPath, libraryFile);
@@ -104,11 +110,33 @@ public abstract class DownloadLibrariesTask extends DefaultTask {
                     throw new RuntimeException("Failed to copy library " + library.name() + "!", exception);
                 }
 
+                libraryJars.put(library.name(), libraryFile);
                 continue;
             }
 
             Path downloadPath = artifact.downloadToPath(libraryPath, fileName);
             System.out.println("Downloaded to: " + downloadPath);
+
+            libraryJars.put(library.name(), downloadPath);
+        }
+
+        System.out.println("Downloaded " + libraryJars.size() + " libraries!");
+
+        JsonObject librariesObject = new JsonObject();
+        libraryJars.entrySet()
+                .stream()
+                .sorted(Map.Entry.comparingByKey())
+                .forEachOrdered(entry ->
+                        librariesObject.addProperty(entry.getKey(), entry.getValue().toString()));
+
+        try {
+            Files.createDirectories(versionPath);
+            Files.writeString(
+                    versionPath.resolve("libraries.json"),
+                    librariesObject.toString(),
+                    StandardCharsets.UTF_8);
+        } catch (IOException exception) {
+            throw new RuntimeException("Failed to write libraries.json!", exception);
         }
     }
 
@@ -119,7 +147,7 @@ public abstract class DownloadLibrariesTask extends DefaultTask {
 
             // check if the string is the version
             String[] slashSplit = string.split("/");
-            if(slashSplit.length == 1) {
+            if (slashSplit.length == 1) {
                 pathBuilder.append(string);
             } else {
                 // replace all . with /

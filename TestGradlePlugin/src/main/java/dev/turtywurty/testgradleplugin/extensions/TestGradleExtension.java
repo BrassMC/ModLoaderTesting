@@ -4,4 +4,5 @@ import org.gradle.api.provider.Property;
 
 public abstract class TestGradleExtension {
     public abstract Property<String> getMinecraftVersion();
+    public abstract Property<String> getVineflowerVersion();
 }
