@@ -6,13 +6,11 @@ import org.gradle.api.provider.Property;
 import org.gradle.api.tasks.*;
 
 import java.io.IOException;
-import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Enumeration;
 import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
-import java.util.stream.Stream;
 
 @CacheableTask
 public abstract class ExtractClientTask extends DefaultTask {
@@ -44,36 +42,23 @@ public abstract class ExtractClientTask extends DefaultTask {
             throw new IllegalStateException("Client jar does not exist!");
 
         Path outputDir = versionPath.resolve("client");
-        if (Files.exists(outputDir))
-            try (Stream<Path> paths = Files.walk(outputDir)) {
-                paths.forEach(path -> {
-                    try {
-                        Files.deleteIfExists(path);
-                    } catch (IOException exception) {
-                        throw new IllegalStateException("Failed to delete path!", exception);
-                    }
-                });
-            } catch (IOException exception) {
-                throw new IllegalStateException("Failed to walk directory!", exception);
-            }
-        else
-            try {
-                Files.createDirectories(outputDir);
-            } catch (IOException exception) {
-                throw new IllegalStateException("Failed to create output directory!", exception);
-            }
+        try {
+            Files.createDirectories(outputDir);
+        } catch (IOException exception) {
+            throw new IllegalStateException("Failed to create output directory!", exception);
+        }
 
         // extract jar
-        try (JarFile jar = new JarFile(jarPath.toFile())) {
+        try (var jar = new JarFile(jarPath.toFile())) {
             Enumeration<JarEntry> entries = jar.entries();
             while (entries.hasMoreElements()) {
                 JarEntry entry = entries.nextElement();
-                Path entryPath = outputDir.resolve(entry.getName());
+                Path destination = outputDir.resolve(entry.getName());
                 if (entry.isDirectory()) {
-                    Files.createDirectories(entryPath);
+                    Files.createDirectories(destination);
                 } else {
-                    Files.createDirectories(entryPath.getParent());
-                    Files.copy(jar.getInputStream(entry), entryPath);
+                    Files.createDirectories(destination.getParent());
+                    Files.copy(jar.getInputStream(entry), destination);
                 }
 
                 System.out.printf("Extracted %s%n", entry.getName());
@@ -83,5 +68,7 @@ public abstract class ExtractClientTask extends DefaultTask {
         } catch (IOException exception) {
             throw new IllegalStateException("Failed to extract jar!", exception);
         }
+
+        System.out.println("Finished extracting client!");
     }
 }

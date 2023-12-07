@@ -14,10 +14,13 @@ import org.objectweb.asm.ClassWriter;
 import org.objectweb.asm.commons.ClassRemapper;
 import org.objectweb.asm.commons.Remapper;
 
-import java.io.FileInputStream;
+import java.io.BufferedInputStream;
+import java.io.BufferedOutputStream;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.concurrent.ForkJoinPool;
+import java.util.stream.Stream;
 
 public abstract class RemapClassesTask extends DefaultTask {
     @Input
@@ -45,74 +48,87 @@ public abstract class RemapClassesTask extends DefaultTask {
         if (Files.notExists(clientMappingsPath))
             throw new RuntimeException("client_mappings.txt is missing, please run the downloadClientMappings task!");
 
-        Path serverMappingsPath = versionPath.resolve("server_mappings.txt");
-        if (Files.notExists(serverMappingsPath))
-            throw new RuntimeException("server_mappings.txt is missing, please run the downloadServerMappings task!");
+//        Path serverMappingsPath = versionPath.resolve("server_mappings.txt");
+//        if (Files.notExists(serverMappingsPath))
+//            throw new RuntimeException("server_mappings.txt is missing, please run the downloadServerMappings task!");
 
         Path clientDir = versionPath.resolve("client");
         if (Files.notExists(clientDir))
             throw new RuntimeException("client is missing, please run the extractClient task!");
-
-        Path serverDir = versionPath.resolve("server");
-        if (Files.notExists(serverDir))
-            throw new RuntimeException("server is missing, please run the extractServer task!");
+//
+//        Path serverDir = versionPath.resolve("server");
+//        if (Files.notExists(serverDir))
+//            throw new RuntimeException("server is missing, please run the extractServer task!");
 
         // parse mappings
-        var serverMappings = new OfficialMappingsFile(serverMappingsPath);
-        serverMappings.getCachedTree().print();
+        //var serverMappings = new OfficialMappingsFile(serverMappingsPath);
+        //serverMappings.getCachedTree().print();
 
         var clientMappings = new OfficialMappingsFile(clientMappingsPath);
         clientMappings.getCachedTree().print();
 
         // remap classes
+        //remap(serverDir, serverMappings);
         remap(clientDir, clientMappings);
-        remap(serverDir, serverMappings);
     }
 
     private static void remap(Path dir, OfficialMappingsFile mappings) {
-        try (var stream = Files.list(dir)) {
-            for (Path path : stream.filter(Files::isRegularFile)
-                    .filter(path -> path.toString().endsWith(".class"))
-                    .toList()) {
-                String className = path.getFileName().toString().replace(".class", "");
-                if (className.equals("zl")) {
-                    System.out.println("Found zl!");
-                }
-
-                String mappedName = mappings.findPath(className, MappingFile.NodeType.CLASS);
-                if (mappedName == null) {
-                    System.out.printf("Failed to find mapping for %s%n", className);
-                    continue;
-                }
-
-                // move to correct location
-                Path mappedPackagePath = dir.resolve(mappedName.replace(".", "/") + ".class");
-
-                System.out.printf("Remapping %s to %s%n", className, mappedName);
-                Files.createDirectories(mappedPackagePath.getParent());
-                Files.move(path, mappedPackagePath);
-
-                // TODO: Figure out
-                // read the contents of the file
-                try (var fileInputStream = new FileInputStream(mappedPackagePath.toFile())) {
-                    var classReader = new ClassReader(fileInputStream);
-
-                    // remap the class
-                    var classWriter = new ClassWriter(classReader, ClassWriter.COMPUTE_MAXS);
-
-                    var remapper = new ClassReferenceRemapper(mappings);
-                    var classRemapper = new ClassRemapper(classWriter, remapper);
-                    classReader.accept(classRemapper, 0);
-
-                    // write the new class
-                    Files.write(mappedPackagePath, classWriter.toByteArray());
-
-                    // System.out.printf("Remapped %s to %s%n", className, mappedName);
-                }
+        try (var forkJoinPool = new ForkJoinPool(); Stream<Path> paths = Files.list(dir)
+                .filter(path -> path.toString().endsWith(".class"))) {
+            for (Path file : paths.toArray(Path[]::new)) {
+                forkJoinPool.submit(() -> remapClass(file, mappings));
             }
         } catch (IOException exception) {
-            throw new IllegalStateException("Failed to walk directory!", exception);
+            throw new IllegalStateException("Failed to list files!", exception);
         }
+    }
+
+    private static void remapClass(Path path, MappingFile mappings) {
+        String className = path.getFileName().toString().replace(".class", "");
+        String mappedName = mappings.findPath(className, MappingFile.NodeType.CLASS);
+        if (mappedName == null) {
+            System.out.printf("Failed to find mapping for %s%n", className);
+            return;
+        }
+
+        // move to correct location
+        Path mappedPackagePath = path.getParent()
+                .resolve(mappedName.replace(".", "/") + ".class");
+
+        //System.out.printf("Remapping %s to %s%n", className, mappedName);
+        try {
+            Files.move(path, mappedPackagePath);
+        } catch (IOException exception) {
+            throw new IllegalStateException("Failed to move file!", exception);
+        }
+
+        // read the contents of the file
+        try (var fileInputStream = new BufferedInputStream(Files.newInputStream(mappedPackagePath))) {
+            var newBytes = writeReferences(mappings, fileInputStream);
+
+            // write the new bytes to the file
+            try (var fileOutputStream = new BufferedOutputStream(Files.newOutputStream(mappedPackagePath))) {
+                fileOutputStream.write(newBytes);
+            }
+
+            System.out.printf("Remapped %s to %s%n", className, mappedName);
+        } catch (IOException exception) {
+            throw new IllegalStateException("Failed to read file!", exception);
+        }
+    }
+
+    private static byte[] writeReferences(MappingFile mappings, BufferedInputStream fileInputStream) throws IOException {
+        var classReader = new ClassReader(fileInputStream);
+        var classWriter = new ClassWriter(ClassWriter.COMPUTE_MAXS);
+
+        // create the remapper
+        var remapper = new ClassReferenceRemapper(mappings);
+        var classRemapper = new ClassRemapper(classWriter, remapper);
+
+        // remap the class
+        classReader.accept(classRemapper, ClassReader.EXPAND_FRAMES);
+
+        return classWriter.toByteArray();
     }
 
     private static class ClassReferenceRemapper extends Remapper {
@@ -125,12 +141,7 @@ public abstract class RemapClassesTask extends DefaultTask {
         @Override
         public String map(String internalName) {
             String mappedName = this.mappings.findPath(internalName, MappingFile.NodeType.CLASS);
-            if (mappedName == null) {
-                System.out.printf("Failed to find mapping for %s%n", internalName);
-                return internalName;
-            }
-
-            return mappedName;
+            return mappedName == null ? internalName : mappedName;
         }
     }
 }
