@@ -1,9 +1,5 @@
 package dev.turtywurty.testgradleplugin.mappings;
 
-import org.gradle.api.tasks.Internal;
-
-import java.io.BufferedReader;
-import java.io.FileReader;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -19,21 +15,14 @@ public class OfficialMappingsFile implements MappingFile {
     }
 
     @Override
-    public String remapClass(String className) {
-        MappingTree.ObfuscatedNode node = (MappingTree.ObfuscatedNode) this.mappingTree.findNode(
-                className,
-                mappingNode -> mappingNode instanceof MappingTree.ObfuscatedNode obfNode &&
-                        obfNode.getObfuscatedName().equals(className));
+    public String findPath(String name, MappingFile.NodeType nodeType) {
+        MappingTree.MappingNode node = this.mappingTree.findNodeFull(mappingNode -> switch (nodeType) {
+            case PACKAGE -> nodeType.getPredicate().test(mappingNode) && mappingNode.getName().equals(name);
+            case CLASS, METHOD, FIELD -> nodeType.getPredicate().test(mappingNode) &&
+                    ((MappingTree.ObfuscatedNode) mappingNode).getObfuscatedName().equals(name);
+            default -> false;
+        });
 
-        return node == null ? className : node.getName();
-    }
-
-    @Override
-    public String findPackage(String name) {
-        MappingTree.MappingNode node = this.mappingTree.findNode(
-                name,
-                mappingNode -> mappingNode instanceof MappingTree.ObfuscatedNode obfNode &&
-                        obfNode.getName().equals(name));
         if (node == null)
             return null;
 
@@ -53,7 +42,6 @@ public class OfficialMappingsFile implements MappingFile {
         return builder.toString();
     }
 
-    @Internal
     @Override
     public MappingTree parseMappings(Path path) {
         if (Files.notExists(path)) {
@@ -61,55 +49,77 @@ public class OfficialMappingsFile implements MappingFile {
         }
 
         var mappingTree = new MappingTree();
-        try(BufferedReader bufferedReader = new BufferedReader(new FileReader(path.toFile()))) {
-            String line;
-            MappingTree.MappingNode currentPackageOrClass = null;
 
-            while ((line = bufferedReader.readLine()) != null) {
-                if(line.startsWith("#")) {
-                    // Comment
+        try (var linesStream = Files.lines(path)) {
+            List<String> lines = linesStream.toList();
+            MappingTree.MappingNode currentParent = null;
+
+            long startRead = System.nanoTime();
+            final int totalLines = lines.size();
+            for (int lineIndex = 0; lineIndex < lines.size(); lineIndex++) {
+                String line = lines.get(lineIndex);
+
+                // Empty lines and comments
+                if (line.isBlank() || line.startsWith("#"))
                     continue;
+
+                long start = System.nanoTime();
+                if (line.endsWith(":")) {
+                    line = line.replace(":", "").trim();
+                    currentParent = parseClass(line, mappingTree);
+                } else if (currentParent instanceof MappingTree.ClassNode classParent && line.contains("->")) {
+                    currentParent.addChild(parseMethodOrField(classParent, line));
                 }
 
-                if(line.endsWith(":")) {
-                    currentPackageOrClass = parseNode(currentPackageOrClass, line, mappingTree);
-                } else if(currentPackageOrClass != null && line.contains("->")) {
-                    currentPackageOrClass.addChild(parseMethodOrField(currentPackageOrClass, line));
+                if (lineIndex % 1000 == 0) {
+                    System.out.printf("Parsed line in %d/%d in %dns%n",
+                            lineIndex,
+                            totalLines,
+                            System.nanoTime() - start);
                 }
             }
-        } catch(IOException exception) {
+
+            System.out.printf("Parsed %d lines in %dns%n",
+                    totalLines,
+                    System.nanoTime() - startRead);
+        } catch (IOException exception) {
             throw new RuntimeException("Failed to read file!", exception);
         }
 
         return mappingTree;
     }
 
-    // TODO: Figure out why it only adds the first package
-    private static MappingTree.MappingNode parseNode(MappingTree.MappingNode parent, String line, MappingTree mappingTree) {
-        String[] split = line.split(" -> ");
-        String classPath = split[0].trim();
-        String obfuscatedName = split[1].replace(":", "").trim();
+    private static MappingTree.MappingNode parseClass(String line, MappingTree mappingTree) {
+        String[] parts = line.split(" -> ");
+        String classPath = parts[0];
+        String obfuscatedName = parts[1];
+        if (obfuscatedName.equals("zl")) {
+            System.out.println("Found zl!");
+        }
 
         String[] packageSplit = classPath.split("\\.");
         List<String> packages = new ArrayList<>(Arrays.asList(packageSplit).subList(0, packageSplit.length - 1));
 
         MappingTree.MappingNode previousPackage = null;
         for (String aPackage : packages) {
-            MappingTree.MappingNode node = new MappingTree.MappingNode(aPackage, parent);
-            if (previousPackage == null && parent == null) {
-                mappingTree.addRootNode(node);
-            } else if(previousPackage != null) {
-                previousPackage.addChild(node);
-            } else {
-                parent.addChild(node);
+            MappingTree.MappingNode node = mappingTree.findNode(
+                    previousPackage != null ? previousPackage.getChildren().values() : mappingTree.getRootNodes(),
+                    mappingNode -> mappingNode.getName().equals(aPackage) && !(mappingNode instanceof MappingTree.ObfuscatedNode));
+
+            if (node == null) {
+                node = new MappingTree.MappingNode(aPackage, previousPackage);
+                if (previousPackage == null) {
+                    mappingTree.addRootNode(node);
+                } else {
+                    previousPackage.addChild(node);
+                }
             }
 
             previousPackage = node;
         }
 
         String className = packageSplit[packageSplit.length - 1];
-        MappingTree.ObfuscatedNode classNode = new MappingTree.ObfuscatedNode(className, obfuscatedName, parent);
-
+        var classNode = new MappingTree.ClassNode(className, obfuscatedName, previousPackage);
         if (previousPackage == null) {
             mappingTree.addRootNode(classNode);
         } else {
@@ -119,14 +129,14 @@ public class OfficialMappingsFile implements MappingFile {
         return classNode;
     }
 
-    private static MappingTree.ObfuscatedNode parseMethodOrField(MappingTree.MappingNode parent, String line) {
+    private static MappingTree.ObfuscatedNode parseMethodOrField(MappingTree.ClassNode parent, String line) {
         String[] split = line.split(" -> ");
         String signature = split[0].trim();
         String obfuscatedName = split[1].trim();
 
         // determine if method or field
         String[] parts = signature.split(" ");
-        if(!signature.contains("("))  {
+        if (!signature.contains("(")) {
             // field
             String returnType = parts[0];
             String name = parts[1];
@@ -135,16 +145,14 @@ public class OfficialMappingsFile implements MappingFile {
         } else {
             // method
             String[] infoSplit = parts[0].split(":");
+
             String returnType = infoSplit[0];
             int fromLine = -1;
             int toLine = -1;
-            if (infoSplit.length == 3) {
-                String fromLineStr = infoSplit[0];
-                String toLineStr = infoSplit[1];
-
+            if (infoSplit.length >= 3) {
                 try {
-                    fromLine = Integer.parseInt(fromLineStr);
-                    toLine = Integer.parseInt(toLineStr);
+                    fromLine = Integer.parseInt(infoSplit[0]);
+                    toLine = Integer.parseInt(infoSplit[1]);
                 } catch (NumberFormatException exception) {
                     throw new IllegalArgumentException("Failed to parse line numbers!", exception);
                 }
@@ -152,11 +160,14 @@ public class OfficialMappingsFile implements MappingFile {
                 returnType = infoSplit[2];
             }
 
-            String[] nameParamsSplit = parts[1].split("\\(");
-            String name = nameParamsSplit[0];
-            String[] params = nameParamsSplit[1].replace(")", "").split(",");
+            int startIndex = parts[1].indexOf("(");
+            int endIndex = parts[1].lastIndexOf(")");
+            String name = parts[1].substring(0, startIndex);
+            List<String> params = Arrays.stream(parts[1].substring(startIndex + 1, endIndex).split(",")) // split params
+                    .map(String::trim) // trim params
+                    .toList();
 
-            return new MappingTree.MethodNode(name, obfuscatedName, fromLine, toLine, returnType, List.of(params), parent);
+            return new MappingTree.MethodNode(name, obfuscatedName, fromLine, toLine, returnType, params, parent);
         }
     }
 

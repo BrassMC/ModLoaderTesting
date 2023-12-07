@@ -74,12 +74,34 @@ public class TestGradlePlugin implements Plugin<Project> {
         downloadLibrariesTask.getOutputDir().set(cacheDir.toFile());
         downloadLibrariesTask.getVersion().set(minecraftVersion);
 
+        ExtractClientTask extractClientTask = tasks.create("extractClient", ExtractClientTask.class);
+        extractClientTask.setGroup("minecraft");
+        extractClientTask.setDescription("Extracts the Minecraft client jar.");
+        extractClientTask.dependsOn(downloadClientTask);
+        extractClientTask.getOutputDir().set(cacheDir.toFile());
+        extractClientTask.getVersion().set(minecraftVersion);
+
+        ExtractServerTask extractServerTask = tasks.create("extractServer", ExtractServerTask.class);
+        extractServerTask.setGroup("minecraft");
+        extractServerTask.setDescription("Extracts the Minecraft server jar.");
+        extractServerTask.dependsOn(downloadServerTask);
+        extractServerTask.getOutputDir().set(cacheDir.toFile());
+        extractServerTask.getVersion().set(minecraftVersion);
+
         RemapClassesTask remapClassesTask = tasks.create("remapClasses", RemapClassesTask.class);
         remapClassesTask.setGroup("minecraft");
         remapClassesTask.setDescription("Remaps the Minecraft client and server jars.");
-        remapClassesTask.dependsOn(downloadClientTask, downloadServerTask, downloadClientMappingsTask, downloadServerMappingsTask);
+        remapClassesTask.dependsOn(extractClientTask, extractServerTask, downloadClientMappingsTask, downloadServerMappingsTask);
         remapClassesTask.getOutputDir().set(cacheDir.toFile());
         remapClassesTask.getVersion().set(minecraftVersion);
+
+        DecompileClientTask decompileClientTask = tasks.create("decompileClient", DecompileClientTask.class);
+        decompileClientTask.setGroup("minecraft");
+        decompileClientTask.setDescription("Decompiles the Minecraft client jar.");
+        decompileClientTask.dependsOn(downloadClientTask, downloadClientMappingsTask, downloadAssetsTask, downloadLibrariesTask, remapClassesTask);
+        decompileClientTask.getOutputDir().set(cacheDir.toFile());
+        decompileClientTask.getVersion().set(minecraftVersion);
+        decompileClientTask.getVineflowerVersion().set(extension.getVineflowerVersion());
 
         MergeJarTask mergeJarTask = tasks.create("mergeJar", MergeJarTask.class);
         mergeJarTask.setGroup("minecraft");
@@ -87,14 +109,6 @@ public class TestGradlePlugin implements Plugin<Project> {
         mergeJarTask.dependsOn(remapClassesTask);
         mergeJarTask.getOutputDir().set(cacheDir.toFile());
         mergeJarTask.getVersion().set(minecraftVersion);
-
-        DecompileClientTask decompileClientTask = tasks.create("decompileClient", DecompileClientTask.class);
-        decompileClientTask.setGroup("minecraft");
-        decompileClientTask.setDescription("Decompiles the Minecraft client jar.");
-        decompileClientTask.dependsOn(downloadClientTask, downloadClientMappingsTask, downloadAssetsTask, downloadLibrariesTask);
-        decompileClientTask.getOutputDir().set(cacheDir.toFile());
-        decompileClientTask.getVersion().set(minecraftVersion);
-        decompileClientTask.getVineflowerVersion().set(extension.getVineflowerVersion());
 
         RunClientTask runClientTask = tasks.create("runClient", RunClientTask.class);
         runClientTask.setGroup("minecraft");

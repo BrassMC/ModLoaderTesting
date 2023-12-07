@@ -5,18 +5,20 @@ import dev.turtywurty.testgradleplugin.mappings.OfficialMappingsFile;
 import org.gradle.api.DefaultTask;
 import org.gradle.api.file.DirectoryProperty;
 import org.gradle.api.provider.Property;
-import org.gradle.api.tasks.*;
+import org.gradle.api.tasks.Input;
+import org.gradle.api.tasks.Optional;
+import org.gradle.api.tasks.OutputDirectory;
+import org.gradle.api.tasks.TaskAction;
+import org.objectweb.asm.ClassReader;
+import org.objectweb.asm.ClassWriter;
+import org.objectweb.asm.commons.ClassRemapper;
+import org.objectweb.asm.commons.Remapper;
 
+import java.io.FileInputStream;
 import java.io.IOException;
-import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Enumeration;
-import java.util.jar.JarEntry;
-import java.util.jar.JarFile;
-import java.util.jar.JarOutputStream;
 
-@CacheableTask
 public abstract class RemapClassesTask extends DefaultTask {
     @Input
     public abstract Property<String> getVersion();
@@ -39,78 +41,96 @@ public abstract class RemapClassesTask extends DefaultTask {
                 .toPath()
                 .resolve(getVersion().get());
 
-        Path clientJarPath = versionPath.resolve("client.jar");
-        if (Files.notExists(clientJarPath)) {
-            throw new RuntimeException("client.jar is missing, please run the downloadClient task!");
-        }
-
-        Path serverJarPath = versionPath.resolve("server.jar");
-        if (Files.notExists(serverJarPath)) {
-            throw new RuntimeException("server.jar is missing, please run the downloadServer task!");
-        }
-
         Path clientMappingsPath = versionPath.resolve("client_mappings.txt");
-        if (Files.notExists(clientMappingsPath)) {
+        if (Files.notExists(clientMappingsPath))
             throw new RuntimeException("client_mappings.txt is missing, please run the downloadClientMappings task!");
-        }
 
         Path serverMappingsPath = versionPath.resolve("server_mappings.txt");
-        if (Files.notExists(serverMappingsPath)) {
+        if (Files.notExists(serverMappingsPath))
             throw new RuntimeException("server_mappings.txt is missing, please run the downloadServerMappings task!");
-        }
 
-        Path remappedClientJarPath = versionPath.resolve("client-remapped.jar");
-        Path remappedServerJarPath = versionPath.resolve("server-remapped.jar");
-        System.out.println("Remapped client jar: " + remappedClientJarPath);
-        System.out.println("Remapped server jar: " + remappedServerJarPath);
+        Path clientDir = versionPath.resolve("client");
+        if (Files.notExists(clientDir))
+            throw new RuntimeException("client is missing, please run the extractClient task!");
+
+        Path serverDir = versionPath.resolve("server");
+        if (Files.notExists(serverDir))
+            throw new RuntimeException("server is missing, please run the extractServer task!");
 
         // parse mappings
         var serverMappings = new OfficialMappingsFile(serverMappingsPath);
-        // serverMappings.getCachedTree().print();
+        serverMappings.getCachedTree().print();
 
         var clientMappings = new OfficialMappingsFile(clientMappingsPath);
-        // clientMappings.getCachedTree().print();
+        clientMappings.getCachedTree().print();
 
-        // remap jars
-        remapJar(clientJarPath, remappedClientJarPath, clientMappings);
-        remapJar(serverJarPath, remappedServerJarPath, serverMappings);
+        // remap classes
+        remap(clientDir, clientMappings);
+        remap(serverDir, serverMappings);
     }
 
-    private static void remapJar(Path inputJar, Path outputJar, MappingFile mappings) {
-        try(JarFile jarFile = new JarFile(inputJar.toFile())) {
-            var outputStream = new JarOutputStream(Files.newOutputStream(outputJar));
-
-            Enumeration<JarEntry> entries = jarFile.entries();
-            while (entries.hasMoreElements()) {
-                JarEntry entry = entries.nextElement();
-                if(entry.isDirectory())
-                    continue;
-                if(!entry.getName().endsWith(".class"))
-                    continue;
-
-                try(InputStream stream = jarFile.getInputStream(entry)) {
-                    String packageName = mappings.findPackage(entry.getName());
-                    String remappedFileName = mappings.remapClass(entry.getName());
-                    String remappedEntryName = packageName + "/" + remappedFileName;
-
-                    System.out.println("Remapped " + entry.getName() + " to " + remappedEntryName);
-
-                    var newEntry = new JarEntry(remappedEntryName);
-                    outputStream.putNextEntry(newEntry);
-
-                    byte[] buffer = new byte[1024];
-                    int bytesRead;
-                    while ((bytesRead = stream.read(buffer)) != -1) {
-                        outputStream.write(buffer, 0, bytesRead);
-                    }
+    private static void remap(Path dir, OfficialMappingsFile mappings) {
+        try (var stream = Files.list(dir)) {
+            for (Path path : stream.filter(Files::isRegularFile)
+                    .filter(path -> path.toString().endsWith(".class"))
+                    .toList()) {
+                String className = path.getFileName().toString().replace(".class", "");
+                if (className.equals("zl")) {
+                    System.out.println("Found zl!");
                 }
 
-                outputStream.closeEntry();
+                String mappedName = mappings.findPath(className, MappingFile.NodeType.CLASS);
+                if (mappedName == null) {
+                    System.out.printf("Failed to find mapping for %s%n", className);
+                    continue;
+                }
+
+                // move to correct location
+                Path mappedPackagePath = dir.resolve(mappedName.replace(".", "/") + ".class");
+
+                System.out.printf("Remapping %s to %s%n", className, mappedName);
+                Files.createDirectories(mappedPackagePath.getParent());
+                Files.move(path, mappedPackagePath);
+
+                // TODO: Figure out
+                // read the contents of the file
+                try (var fileInputStream = new FileInputStream(mappedPackagePath.toFile())) {
+                    var classReader = new ClassReader(fileInputStream);
+
+                    // remap the class
+                    var classWriter = new ClassWriter(classReader, ClassWriter.COMPUTE_MAXS);
+
+                    var remapper = new ClassReferenceRemapper(mappings);
+                    var classRemapper = new ClassRemapper(classWriter, remapper);
+                    classReader.accept(classRemapper, 0);
+
+                    // write the new class
+                    Files.write(mappedPackagePath, classWriter.toByteArray());
+
+                    // System.out.printf("Remapped %s to %s%n", className, mappedName);
+                }
+            }
+        } catch (IOException exception) {
+            throw new IllegalStateException("Failed to walk directory!", exception);
+        }
+    }
+
+    private static class ClassReferenceRemapper extends Remapper {
+        private final MappingFile mappings;
+
+        public ClassReferenceRemapper(MappingFile mappings) {
+            this.mappings = mappings;
+        }
+
+        @Override
+        public String map(String internalName) {
+            String mappedName = this.mappings.findPath(internalName, MappingFile.NodeType.CLASS);
+            if (mappedName == null) {
+                System.out.printf("Failed to find mapping for %s%n", internalName);
+                return internalName;
             }
 
-            outputStream.close();
-        } catch (IOException exception) {
-            throw new RuntimeException("Failed to remap jar!", exception);
+            return mappedName;
         }
     }
 }

@@ -1,6 +1,7 @@
 plugins {
     id 'java-gradle-plugin'
     id 'maven-publish'
+    id 'org.gradle.gradle-profiler' version '0.0.1'
 }
 
 version = '1.0-SNAPSHOT'
@@ -22,4 +23,6 @@ repositories {
 dependencies {
     implementation 'com.google.code.gson:gson:2.10.1'
     implementation 'org.vineflower:vineflower:1.9.3'
+    implementation 'org.ow2.asm:asm:9.5'
+    implementation 'org.ow2.asm:asm-commons:9.5'
 }

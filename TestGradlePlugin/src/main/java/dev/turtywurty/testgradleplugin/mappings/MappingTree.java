@@ -16,68 +16,83 @@ public class MappingTree {
         this.rootNodes.add(node);
     }
 
-    public @Nullable MappingNode findNode(String previousPackage, int atDepth, Collection<MappingNode> nodes, Predicate<MappingNode> predicate) {
-        for (MappingNode node : nodes) {
-            if (node.getName().equals(previousPackage)) {
-                if (atDepth == 0 && predicate.test(node)) {
-                    return node;
-                }
-
-                return findNode(previousPackage, atDepth - 1, node.getChildren().values(), predicate);
-            }
-
-            MappingNode foundNode;
-            while ((foundNode = findNode(previousPackage, atDepth, node.getChildren().values(), predicate)) != null) {
-                return foundNode;
-            }
-
-            if (atDepth == 0 && predicate.test(node)) {
+    public @Nullable MappingNode findNode(Collection<MappingNode> nodes, Predicate<MappingNode> predicate) {
+        Deque<MappingNode> stack = new ArrayDeque<>(nodes);
+        while (!stack.isEmpty()) {
+            MappingNode node = stack.pop();
+            if (predicate.test(node)) {
                 return node;
             }
 
-            return findNode(previousPackage, getMaxDepth(), node.getChildren().values(), predicate);
+            // the following line is commented out because it doesn't respect the package hierarchy
+            // stack.addAll(node.getChildren().values());
         }
-
         return null;
     }
 
-    public MappingNode findNode(String previousPackage, int depth, Predicate<MappingNode> predicate) {
-        return findNode(previousPackage, depth, this.rootNodes, predicate);
+    public @Nullable MappingNode findNodeFull(Collection<MappingNode> nodes, Predicate<MappingNode> predicate) {
+        Deque<MappingNode> stack = new ArrayDeque<>(nodes);
+        while (!stack.isEmpty()) {
+            MappingNode node = stack.pop();
+            if (predicate.test(node)) {
+                return node;
+            }
+
+            stack.addAll(node.getChildren().values());
+        }
+        return null;
     }
 
-    public MappingNode findNode(String previousPackage, int depth) {
-        return findNode(previousPackage, depth, this.rootNodes, mappingNode -> true);
+    public MappingNode findNodeFull(Predicate<MappingNode> predicate) {
+        return findNodeFull(this.rootNodes, predicate);
+    }
+
+    public MappingNode findNode(Predicate<MappingNode> predicate) {
+        return findNode(this.rootNodes, predicate);
+    }
+
+    public MappingNode findNode() {
+        return findNode(this.rootNodes, mappingNode -> true);
     }
 
     public @Nullable MappingNode findNode(String name, Predicate<MappingNode> predicate) {
-        for (MappingNode rootNode : this.rootNodes) {
-            MappingNode node = findNode(name, getMaxDepth(), rootNode.getChildren().values(), predicate);
-            if (node != null) {
-                return node;
-            }
-        }
-
-        return null;
+        return findNode(this.rootNodes, predicate.and(mappingNode -> mappingNode.getName().equals(name)));
     }
 
     public @Nullable MappingNode findNode(String name) {
-        for (MappingNode rootNode : this.rootNodes) {
-            MappingNode node = findNode(name, getMaxDepth(), rootNode.getChildren().values(), mappingNode -> true);
-            if (node != null) {
-                return node;
-            }
-        }
-
-        return null;
+        return findNode(name, mappingNode -> mappingNode.getName().equals(name));
     }
 
-    // TODO: Fix StackOverflowError
+    public List<MappingNode> findNodesAtDepth(int depth) {
+        if (depth <= 0) {
+            return this.rootNodes;
+        }
+
+        List<MappingNode> nodes = new ArrayList<>();
+        Deque<MappingNode> stack = new ArrayDeque<>(this.rootNodes);
+        int currentDepth = 1;
+
+        while (!stack.isEmpty() && currentDepth <= depth) {
+            int size = stack.size();
+            for (int i = 0; i < size; i++) {
+                MappingNode node = stack.pop();
+                stack.addAll(node.getChildren().values());
+                if (currentDepth == depth) {
+                    nodes.add(node);
+                }
+            }
+            currentDepth++;
+        }
+
+        return nodes;
+    }
+
     public int getMaxDepth(int depth, Collection<MappingNode> nodes) {
         int maxDepth = depth;
         for (MappingNode node : nodes) {
-            int nextDepth = getMaxDepth(depth + 1, node.getChildren().values());
-            if (nextDepth > maxDepth) {
-                maxDepth = nextDepth;
+            int nodeDepth = getMaxDepth(depth + 1, node.getChildren().values());
+            if (nodeDepth > maxDepth) {
+                maxDepth = nodeDepth;
             }
         }
 
@@ -156,6 +171,12 @@ public class MappingTree {
         @Override
         public String getPrintText() {
             return this.obfuscatedName + " -> " + super.getPrintText();
+        }
+    }
+
+    public static class ClassNode extends ObfuscatedNode {
+        public ClassNode(String name, String obfuscatedName, MappingNode parent) {
+            super(name, obfuscatedName, parent);
         }
     }
 

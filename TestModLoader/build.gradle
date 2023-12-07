@@ -14,3 +14,7 @@ testGradle {
     minecraftVersion = '1.20.2'
     vineflowerVersion = '1.9.3'
 }
+
+dependencies {
+    implementation 'org.ow2.asm:asm:9.5'
+}

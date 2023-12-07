@@ -10,10 +10,9 @@ import dev.turtywurty.testgradleplugin.piston.version.VersionPackage;
 import org.gradle.api.DefaultTask;
 import org.gradle.api.file.DirectoryProperty;
 import org.gradle.api.provider.Property;
-import org.gradle.api.tasks.*;
 import org.gradle.api.tasks.Optional;
+import org.gradle.api.tasks.*;
 
-import javax.inject.Inject;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URL;
@@ -71,7 +70,7 @@ public abstract class DownloadAssetsTask extends DefaultTask {
         System.out.println("Assets url: " + assetsUrl);
 
         AssetIndexHash assetIndexHash;
-        try(InputStream stream = new URL(assetsUrl).openStream()) {
+        try (InputStream stream = new URL(assetsUrl).openStream()) {
             var jsonStr = new String(stream.readAllBytes());
             JsonObject json = TestGradlePlugin.GSON.fromJson(jsonStr, JsonObject.class);
             assetIndexHash = AssetIndexHash.fromJson(json);
@@ -96,70 +95,70 @@ public abstract class DownloadAssetsTask extends DefaultTask {
             HashSet<String> assetSet = new HashSet<>(assets.size());
             assetKeys.removeIf(key -> key == null || !assetSet.add(assets.get(key).getPath()));
 
-            try(ExecutorService executor = Executors.newFixedThreadPool(getConcurrentConnections().get())) {
-                final CopyOnWriteArrayList<AssetObject> failedAssets = new CopyOnWriteArrayList<>();
+            ExecutorService executor = Executors.newFixedThreadPool(getConcurrentConnections().get());
+            final CopyOnWriteArrayList<AssetObject> failedAssets = new CopyOnWriteArrayList<>();
 
-                for (String key : assetKeys) {
-                    AssetObject asset = assets.get(key);
-                    String hash = asset.hash();
-                    String path = asset.getPath();
-                    String assetUrl = getAssetsUrl().get() + asset.getPath();
+            for (String key : assetKeys) {
+                AssetObject asset = assets.get(key);
+                String hash = asset.hash();
+                String path = asset.getPath();
+                String assetUrl = getAssetsUrl().get() + asset.getPath();
 
-                    Path assetPath = assetsPath.resolve(path);
-                    Path minecraftAssetPath = minecraftAssets.resolve(asset.getPath());
+                Path assetPath = assetsPath.resolve(path);
+                Path minecraftAssetPath = minecraftAssets.resolve(asset.getPath());
 
-                    if (Files.exists(assetPath) && HashingFunction.SHA1.hash(assetPath).equals(hash)) {
-                        // System.out.println("Skipping asset " + path + " as it already exists!");
-                        continue;
-                    }
+                if (Files.exists(assetPath) && HashingFunction.SHA1.hash(assetPath).equals(hash)) {
+                    // System.out.println("Skipping asset " + path + " as it already exists!");
+                    continue;
+                }
 
-                    Runnable copyHandler = () -> {
-                        System.out.println("Copying asset " + path + " from " + minecraftAssetPath + " to " + assetPath + "!");
-                        if (Files.exists(minecraftAssetPath) && HashingFunction.SHA1.hash(minecraftAssetPath).equals(hash)) {
-                            try {
-                                Files.createDirectories(assetPath.getParent());
-                                Files.copy(minecraftAssetPath, assetPath);
-                                return;
-                            } catch (IOException ignored) {}
-                        }
-
-                        System.out.println("Downloading asset " + path + " from " + assetUrl + " to " + assetPath + "!");
-                        try (InputStream stream = new URL(assetUrl).openStream()) {
+                Runnable copyHandler = () -> {
+                    System.out.println("Copying asset " + path + " from " + minecraftAssetPath + " to " + assetPath + "!");
+                    if (Files.exists(minecraftAssetPath) && HashingFunction.SHA1.hash(minecraftAssetPath).equals(hash)) {
+                        try {
                             Files.createDirectories(assetPath.getParent());
-                            Files.write(assetPath, stream.readAllBytes());
-                        } catch (IOException exception) {
-                            System.out.println("Failed to download asset " + path + " from " + assetUrl + "!");
-                            failedAssets.add(asset);
-                        }
-                    };
-
-                    executor.execute(copyHandler);
-                }
-
-                try {
-                    executor.shutdown();
-
-                    if (!executor.awaitTermination(Long.MAX_VALUE, TimeUnit.NANOSECONDS)) {
-                        throw new RuntimeException("Timed out while waiting for assets to download!");
-                    }
-                } catch (InterruptedException exception) {
-                    throw new RuntimeException("Failed to wait for assets to download!", exception);
-                }
-
-                if (!failedAssets.isEmpty()) {
-                    StringBuilder errorMessage = new StringBuilder("Failed to download the following assets (Total: " + failedAssets.size() + "):\n");
-                    for (AssetObject asset : failedAssets) {
-                        for (Map.Entry<String, AssetObject> entry : assets.entrySet()) {
-                            if (entry.getValue().hash().equals(asset.hash())) {
-                                errorMessage.append("Asset: ").append(entry.getKey()).append("\n");
-                                break;
-                            }
+                            Files.copy(minecraftAssetPath, assetPath);
+                            return;
+                        } catch (IOException ignored) {
                         }
                     }
 
-                    errorMessage.append("\nSome assets failed to download! See above for more details! Try running the task again!");
-                    throw new RuntimeException(errorMessage.toString());
+                    System.out.println("Downloading asset " + path + " from " + assetUrl + " to " + assetPath + "!");
+                    try (InputStream stream = new URL(assetUrl).openStream()) {
+                        Files.createDirectories(assetPath.getParent());
+                        Files.write(assetPath, stream.readAllBytes());
+                    } catch (IOException exception) {
+                        System.out.println("Failed to download asset " + path + " from " + assetUrl + "!");
+                        failedAssets.add(asset);
+                    }
+                };
+
+                executor.execute(copyHandler);
+            }
+
+            try {
+                executor.shutdown();
+
+                if (!executor.awaitTermination(Long.MAX_VALUE, TimeUnit.NANOSECONDS)) {
+                    throw new RuntimeException("Timed out while waiting for assets to download!");
                 }
+            } catch (InterruptedException exception) {
+                throw new RuntimeException("Failed to wait for assets to download!", exception);
+            }
+
+            if (!failedAssets.isEmpty()) {
+                StringBuilder errorMessage = new StringBuilder("Failed to download the following assets (Total: " + failedAssets.size() + "):\n");
+                for (AssetObject asset : failedAssets) {
+                    for (Map.Entry<String, AssetObject> entry : assets.entrySet()) {
+                        if (entry.getValue().hash().equals(asset.hash())) {
+                            errorMessage.append("Asset: ").append(entry.getKey()).append("\n");
+                            break;
+                        }
+                    }
+                }
+
+                errorMessage.append("\nSome assets failed to download! See above for more details! Try running the task again!");
+                throw new RuntimeException(errorMessage.toString());
             }
         } catch (IOException exception) {
             throw new RuntimeException("Failed to create assets directory!", exception);
