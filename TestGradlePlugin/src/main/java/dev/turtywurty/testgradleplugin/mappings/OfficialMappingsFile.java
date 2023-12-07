@@ -93,9 +93,6 @@ public class OfficialMappingsFile implements MappingFile {
         String[] parts = line.split(" -> ");
         String classPath = parts[0];
         String obfuscatedName = parts[1];
-        if (obfuscatedName.equals("zl")) {
-            System.out.println("Found zl!");
-        }
 
         String[] packageSplit = classPath.split("\\.");
         List<String> packages = new ArrayList<>(Arrays.asList(packageSplit).subList(0, packageSplit.length - 1));
