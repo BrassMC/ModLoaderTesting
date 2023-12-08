@@ -13,4 +13,5 @@ repositories {
 testGradle {
     minecraftVersion = '1.20.2'
     vineflowerVersion = '1.9.3'
+    side = 'CLIENT'
 }

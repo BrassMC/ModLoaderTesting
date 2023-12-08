@@ -1,5 +1,6 @@
 package dev.turtywurty.testgradleplugin.tasks;
 
+import dev.turtywurty.testgradleplugin.extensions.TestGradleExtension;
 import dev.turtywurty.testgradleplugin.mappings.MappingFile;
 import dev.turtywurty.testgradleplugin.mappings.OfficialMappingsFile;
 import org.gradle.api.DefaultTask;
@@ -29,6 +30,9 @@ public abstract class RemapClassesTask extends DefaultTask {
     @Input
     public abstract Property<String> getVersion();
 
+    @Input
+    public abstract Property<TestGradleExtension.Side> getSide();
+
     @OutputDirectory
     @Optional
     public abstract DirectoryProperty getOutputDir();
@@ -47,32 +51,31 @@ public abstract class RemapClassesTask extends DefaultTask {
                 .toPath()
                 .resolve(getVersion().get());
 
-        Path clientMappingsPath = versionPath.resolve("client_mappings.txt");
-        if (Files.notExists(clientMappingsPath))
-            throw new RuntimeException("client_mappings.txt is missing, please run the downloadClientMappings task!");
+        TestGradleExtension.Side side = getSide().get();
+        if (side == TestGradleExtension.Side.CLIENT || side == TestGradleExtension.Side.BOTH) {
+            Path clientMappingsPath = versionPath.resolve("client_mappings.txt");
+            if (Files.notExists(clientMappingsPath))
+                throw new RuntimeException("client_mappings.txt is missing, please run the downloadClientMappings task!");
 
-//        Path serverMappingsPath = versionPath.resolve("server_mappings.txt");
-//        if (Files.notExists(serverMappingsPath))
-//            throw new RuntimeException("server_mappings.txt is missing, please run the downloadServerMappings task!");
+            Path clientDir = versionPath.resolve("client");
+            if (Files.notExists(clientDir))
+                throw new RuntimeException("client is missing, please run the extractClient task!");
 
-        Path clientDir = versionPath.resolve("client");
-        if (Files.notExists(clientDir))
-            throw new RuntimeException("client is missing, please run the extractClient task!");
-//
-//        Path serverDir = versionPath.resolve("server");
-//        if (Files.notExists(serverDir))
-//            throw new RuntimeException("server is missing, please run the extractServer task!");
+            var clientMappings = new OfficialMappingsFile(clientMappingsPath);
+            remap(clientDir, clientMappings);
+        }
 
-        // parse mappings
-        // var serverMappings = new OfficialMappingsFile(serverMappingsPath);
-        // serverMappings.getCachedTree().print();
+        if (side == TestGradleExtension.Side.SERVER || side == TestGradleExtension.Side.BOTH) {
+            Path serverMappingsPath = versionPath.resolve("server_mappings.txt");
+            if (Files.notExists(serverMappingsPath))
+                throw new RuntimeException("server_mappings.txt is missing, please run the downloadServerMappings task!");
+            Path serverDir = versionPath.resolve("server");
+            if (Files.notExists(serverDir))
+                throw new RuntimeException("server is missing, please run the extractServer task!");
 
-        var clientMappings = new OfficialMappingsFile(clientMappingsPath);
-        //clientMappings.getCachedTree().print();
-
-        // remap classes
-        // remap(serverDir, serverMappings);
-        remap(clientDir, clientMappings);
+            var serverMappings = new OfficialMappingsFile(serverMappingsPath);
+            remap(serverDir, serverMappings);
+        }
     }
 
     private static void remap(Path dir, OfficialMappingsFile mappings) {
@@ -80,6 +83,9 @@ public abstract class RemapClassesTask extends DefaultTask {
                 .filter(path -> path.toString().endsWith(".class"))) {
             Path[] pathArray = paths.toArray(Path[]::new);
             Map<String, String> classMappings = new HashMap<>();
+
+            long loadStart = System.currentTimeMillis();
+            int loaded = 0;
             for (Path file : pathArray) {
                 String className = file.getFileName().toString().replace(".class", "");
                 String mappedName = mappings.findPath(className, MappingFile.NodeType.CLASS);
@@ -89,30 +95,36 @@ public abstract class RemapClassesTask extends DefaultTask {
                 }
 
                 classMappings.put(className, mappedName);
-                //System.out.printf("Found mapping for %s: %s%n", className, mappedName);
+                loaded++;
             }
 
+            System.out.printf("Loaded %d classes in %ds!%n", loaded, (System.currentTimeMillis() - loadStart) / 1000);
+
             var remapper = new ClassReferenceRemapper(classMappings);
+
+            long remapStart = System.currentTimeMillis();
+            int remapped = 0;
             for (Path path : pathArray) {
                 forkJoinPool.submit(() -> remapClass(path, classMappings, remapper)).get();
+                remapped++;
             }
+
+            System.out.printf("Remapped %d classes in %ds!%n", remapped, (System.currentTimeMillis() - remapStart) / 1000);
         } catch (IOException exception) {
             throw new IllegalStateException("Failed to list files!", exception);
-        } catch (ExecutionException e) {
-            throw new IllegalStateException("Failed to remap class!", e.getCause());
-        } catch (InterruptedException e) {
-            throw new IllegalStateException("Got interrupted!", e);
+        } catch (ExecutionException exception) {
+            throw new IllegalStateException("Failed to remap class!", exception.getCause());
+        } catch (InterruptedException exception) {
+            throw new IllegalStateException("Got interrupted!", exception);
         }
     }
 
     private static void remapClass(Path path, Map<String, String> classMappings, Remapper remapper) {
         String mappedName = classMappings.get(path.getFileName().toString().replace(".class", ""));
-
-        // move to correct location
         Path mappedPackagePath = path.getParent()
                 .resolve(mappedName.replace(".", "/") + ".class");
 
-        //System.out.printf("Remapping %s to %s%n", className, mappedName);
+        // System.out.printf("Remapping %s to %s%n", className, mappedName);
         try {
             Files.createDirectories(mappedPackagePath.getParent());
             Files.move(path, mappedPackagePath);
@@ -120,16 +132,12 @@ public abstract class RemapClassesTask extends DefaultTask {
             throw new IllegalStateException("Failed to move file!", exception);
         }
 
-        // read the contents of the file
         try (var fileInputStream = new BufferedInputStream(Files.newInputStream(mappedPackagePath))) {
             var newBytes = writeReferences(fileInputStream, remapper);
 
-            // write the new bytes to the file
             try (var fileOutputStream = new BufferedOutputStream(Files.newOutputStream(mappedPackagePath))) {
                 fileOutputStream.write(newBytes);
             }
-
-            //System.out.printf("Remapped %s to %s%n", path.getFileName(), mappedName);
         } catch (IOException exception) {
             throw new IllegalStateException("Failed to read file!", exception);
         }
@@ -139,10 +147,7 @@ public abstract class RemapClassesTask extends DefaultTask {
         var classReader = new ClassReader(fileInputStream);
         var classWriter = new ClassWriter(ClassWriter.COMPUTE_MAXS);
 
-        // create the remapper
         var classRemapper = new ClassRemapper(classWriter, remapper);
-
-        // remap the class
         classReader.accept(classRemapper, 0);
 
         return classWriter.toByteArray();

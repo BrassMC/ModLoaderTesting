@@ -81,9 +81,12 @@ public abstract class DownloadAssetsTask extends DefaultTask {
         System.out.println("Asset index hash: " + assetIndexHash);
 
         Path assetsPath = versionPath.resolve("assets");
+        Path objectsPath = assetsPath.resolve("objects");
+        Path indexesPath = assetsPath.resolve("indexes/%s.json".formatted(versionPackage.assetIndex().id()));
         Path minecraftAssets = OperatingSystem.getMinecraftDir().resolve("assets/objects");
         try {
-            Files.createDirectories(assetsPath);
+            Files.createDirectories(objectsPath);
+            Files.createDirectories(indexesPath.getParent());
 
             Map<String, AssetObject> assets = assetIndexHash.getAssets();
             List<String> assetKeys = new ArrayList<>(assets.keySet());
@@ -98,13 +101,21 @@ public abstract class DownloadAssetsTask extends DefaultTask {
             ExecutorService executor = Executors.newFixedThreadPool(getConcurrentConnections().get());
             final CopyOnWriteArrayList<AssetObject> failedAssets = new CopyOnWriteArrayList<>();
 
+            var indexJson = new JsonObject();
+            var objectsJson = new JsonObject();
             for (String key : assetKeys) {
                 AssetObject asset = assets.get(key);
+                long size = asset.size();
                 String hash = asset.hash();
                 String path = asset.getPath();
                 String assetUrl = getAssetsUrl().get() + asset.getPath();
 
-                Path assetPath = assetsPath.resolve(path);
+                var assetJson = new JsonObject();
+                assetJson.addProperty("hash", hash);
+                assetJson.addProperty("size", size);
+                objectsJson.add(key, assetJson);
+
+                Path assetPath = objectsPath.resolve(path);
                 Path minecraftAssetPath = minecraftAssets.resolve(asset.getPath());
 
                 if (Files.exists(assetPath) && HashingFunction.SHA1.hash(assetPath).equals(hash)) {
@@ -134,6 +145,13 @@ public abstract class DownloadAssetsTask extends DefaultTask {
                 };
 
                 executor.execute(copyHandler);
+            }
+
+            try {
+                indexJson.add("objects", objectsJson);
+                Files.writeString(indexesPath, TestGradlePlugin.GSON.toJson(indexJson));
+            } catch (IOException exception) {
+                throw new RuntimeException("Failed to write index json!", exception);
             }
 
             try {

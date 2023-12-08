@@ -7,6 +7,7 @@ import dev.turtywurty.testgradleplugin.tasks.*;
 import org.gradle.api.Plugin;
 import org.gradle.api.Project;
 import org.gradle.api.provider.Property;
+import org.gradle.api.provider.Provider;
 import org.gradle.api.tasks.TaskContainer;
 import org.jetbrains.annotations.NotNull;
 
@@ -23,6 +24,7 @@ public class TestGradlePlugin implements Plugin<Project> {
 
         Path cacheDir = target.getGradle().getGradleUserHomeDir().toPath().resolve("caches/testGradle");
         Property<String> minecraftVersion = extension.getMinecraftVersion();
+        Provider<TestGradleExtension.Side> sideProvider = extension.getSideEnum().orElse(TestGradleExtension.Side.BOTH);
 
         TaskContainer tasks = target.getTasks();
 
@@ -91,29 +93,50 @@ public class TestGradlePlugin implements Plugin<Project> {
         RemapClassesTask remapClassesTask = tasks.create("remapClasses", RemapClassesTask.class);
         remapClassesTask.setGroup("minecraft");
         remapClassesTask.setDescription("Remaps the Minecraft client and server jars.");
-        remapClassesTask.dependsOn(extractClientTask, extractServerTask, downloadClientMappingsTask, downloadServerMappingsTask);
+        remapClassesTask.dependsOn(sideProvider.map(side -> switch (side) {
+            case CLIENT -> new Object[]{extractClientTask, downloadClientMappingsTask};
+            case SERVER -> new Object[]{extractServerTask, downloadServerMappingsTask};
+            case BOTH -> new Object[]{extractClientTask, downloadClientMappingsTask, extractServerTask, downloadServerMappingsTask};
+        }).getOrElse(new Object[0]));
         remapClassesTask.getOutputDir().set(cacheDir.toFile());
         remapClassesTask.getVersion().set(minecraftVersion);
+        remapClassesTask.getSide().set(sideProvider);
 
-        DecompileClientTask decompileClientTask = tasks.create("decompileClient", DecompileClientTask.class);
-        decompileClientTask.setGroup("minecraft");
-        decompileClientTask.setDescription("Decompiles the Minecraft client jar.");
-        decompileClientTask.dependsOn(downloadClientTask, downloadClientMappingsTask, downloadAssetsTask, downloadLibrariesTask, remapClassesTask);
-        decompileClientTask.getOutputDir().set(cacheDir.toFile());
-        decompileClientTask.getVersion().set(minecraftVersion);
-        decompileClientTask.getVineflowerVersion().set(extension.getVineflowerVersion());
+        MergeTask mergeTask = tasks.create("merge", MergeTask.class);
+        mergeTask.setGroup("minecraft");
+        mergeTask.setDescription("Merges the Minecraft client and server into one directory.");
+        mergeTask.dependsOn(remapClassesTask);
+        mergeTask.getOutputDir().set(cacheDir.toFile());
+        mergeTask.getVersion().set(minecraftVersion);
+        mergeTask.getSide().set(sideProvider);
 
-        MergeJarTask mergeJarTask = tasks.create("mergeJar", MergeJarTask.class);
-        mergeJarTask.setGroup("minecraft");
-        mergeJarTask.setDescription("Merges the Minecraft client and server jars.");
-        mergeJarTask.dependsOn(remapClassesTask);
-        mergeJarTask.getOutputDir().set(cacheDir.toFile());
-        mergeJarTask.getVersion().set(minecraftVersion);
+        RecompileTask recompileTask = tasks.create("recompile", RecompileTask.class);
+        recompileTask.setGroup("minecraft");
+        recompileTask.setDescription("Recompiles the Minecraft client and server jars.");
+        recompileTask.dependsOn(sideProvider.map(side -> switch (side) {
+            case CLIENT, SERVER -> new Object[]{remapClassesTask};
+            case BOTH -> new Object[]{remapClassesTask, mergeTask};
+        }).getOrElse(new Object[0]));
+        recompileTask.getOutputDir().set(cacheDir.toFile());
+        recompileTask.getVersion().set(minecraftVersion);
+        recompileTask.getSide().set(sideProvider);
+
+        DecompileTask decompileTask = tasks.create("decompile", DecompileTask.class);
+        decompileTask.setGroup("minecraft");
+        decompileTask.setDescription("Decompiles the Minecraft client and server jars.");
+        decompileTask.dependsOn(sideProvider.map(side -> switch (side) {
+            case CLIENT, SERVER -> new Object[]{remapClassesTask};
+            case BOTH -> new Object[]{remapClassesTask, mergeTask};
+        }).getOrElse(new Object[0]));
+        decompileTask.getOutputDir().set(cacheDir.toFile());
+        decompileTask.getVersion().set(minecraftVersion);
+        decompileTask.getVineflowerVersion().set(extension.getVineflowerVersion());
+        decompileTask.getSide().set(sideProvider);
 
         RunClientTask runClientTask = tasks.create("runClient", RunClientTask.class);
         runClientTask.setGroup("minecraft");
         runClientTask.setDescription("Runs the Minecraft client.");
-        runClientTask.dependsOn(downloadClientTask, downloadClientMappingsTask, downloadAssetsTask, downloadLibrariesTask);
+        runClientTask.dependsOn(downloadClientTask, downloadAssetsTask, downloadLibrariesTask);
         runClientTask.getOutputDir().set(cacheDir.toFile());
         runClientTask.getVersion().set(minecraftVersion);
         runClientTask.getRunDir().set(target.getLayout().getProjectDirectory().dir("run/client"));

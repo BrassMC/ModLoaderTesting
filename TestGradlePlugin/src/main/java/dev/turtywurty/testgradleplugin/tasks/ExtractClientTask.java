@@ -50,25 +50,24 @@ public abstract class ExtractClientTask extends DefaultTask {
 
         // extract jar
         try (var jar = new JarFile(jarPath.toFile())) {
+            int extractedFiles = 0, extractedDirs = 0;
             Enumeration<JarEntry> entries = jar.entries();
             while (entries.hasMoreElements()) {
                 JarEntry entry = entries.nextElement();
                 Path destination = outputDir.resolve(entry.getName());
                 if (entry.isDirectory()) {
                     Files.createDirectories(destination);
+                    extractedDirs++;
                 } else {
                     Files.createDirectories(destination.getParent());
                     Files.copy(jar.getInputStream(entry), destination);
+                    extractedFiles++;
                 }
-
-                System.out.printf("Extracted %s%n", entry.getName());
             }
 
-            System.out.println("Extracted jar!");
+            System.out.printf("Extracted %d files and %d directories!%n", extractedFiles, extractedDirs);
         } catch (IOException exception) {
             throw new IllegalStateException("Failed to extract jar!", exception);
         }
-
-        System.out.println("Finished extracting client!");
     }
 }

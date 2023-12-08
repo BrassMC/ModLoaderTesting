@@ -2,6 +2,7 @@ plugins {
     id 'java-gradle-plugin'
     id 'maven-publish'
     id 'org.gradle.gradle-profiler' version '0.0.1'
+    id 'idea'
 }
 
 version = '1.0-SNAPSHOT'

@@ -3,6 +3,7 @@ package dev.turtywurty.testgradleplugin.tasks;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import dev.turtywurty.testgradleplugin.TestGradlePlugin;
+import dev.turtywurty.testgradleplugin.extensions.TestGradleExtension;
 import org.gradle.api.DefaultTask;
 import org.gradle.api.file.DirectoryProperty;
 import org.gradle.api.provider.Property;
@@ -15,24 +16,26 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.HashMap;
+import java.util.Locale;
 import java.util.Map;
 
 @CacheableTask
-public abstract class DecompileClientTask extends DefaultTask {
+public abstract class DecompileTask extends DefaultTask {
     @Input
     public abstract Property<String> getVersion();
 
     @Input
     public abstract Property<String> getVineflowerVersion();
 
+    @Input
+    public abstract Property<TestGradleExtension.Side> getSide();
+
     @OutputDirectory
     @Optional
     public abstract DirectoryProperty getOutputDir();
 
     @TaskAction
-    public void deobfuscateClient() {
-        System.out.println("Decompiling client for version " + getVersion().get());
-
+    public void decompileClient() {
         Path versionPath = getOutputDir()
                 .orElse(getProject()
                         .getLayout()
@@ -44,20 +47,29 @@ public abstract class DecompileClientTask extends DefaultTask {
                 .toPath()
                 .resolve(getVersion().get());
 
-        Path clientJarPath = versionPath.resolve("client.jar");
-        if (Files.notExists(clientJarPath)) {
-            throw new RuntimeException("client.jar is missing, please run the downloadClient task!");
-        }
+        TestGradleExtension.Side side = getSide().get();
 
-        Path clientMappingsPath = versionPath.resolve("client_mappings.txt");
-        if (Files.notExists(clientMappingsPath)) {
-            throw new RuntimeException("client_mappings.txt is missing, please run the downloadClientMappings task!");
-        }
+        System.out.printf("Decompiling %s for version %s%n", side.name().toLowerCase(Locale.ROOT), getVersion().get());
+
+        Path jarPath = versionPath.resolve(switch (side) {
+            case CLIENT -> "client";
+            case SERVER -> "server";
+            case BOTH -> "joined";
+        } + ".jar");
+        if (Files.notExists(jarPath))
+            throw new IllegalStateException("Jar '%s' does not exist!".formatted(jarPath));
+
+        Path mappingsPath = versionPath.resolve(switch (side) {
+            case CLIENT -> "client";
+            case SERVER -> "server";
+            case BOTH -> "joined";
+        } + "_mappings.txt");
+        if (Files.notExists(mappingsPath))
+            throw new IllegalStateException("Mappings '%s' does not exist!".formatted(mappingsPath));
 
         Path librariesJsonPath = versionPath.resolve("libraries.json");
-        if (Files.notExists(librariesJsonPath)) {
-            throw new RuntimeException("Libraries json does not exist!");
-        }
+        if (Files.notExists(librariesJsonPath))
+            throw new IllegalStateException("Libraries json '%s' does not exist!".formatted(librariesJsonPath));
 
         Map<String, Path> libraryJars = new HashMap<>();
         try {
@@ -69,16 +81,20 @@ public abstract class DecompileClientTask extends DefaultTask {
                 libraryJars.put(name, Path.of(path));
             }
         } catch (IOException exception) {
-            throw new RuntimeException("Failed to read libraries json!", exception);
+            throw new IllegalStateException("Failed to read libraries json!", exception);
         }
 
         BaseDecompiler decompiler = new BaseDecompiler(
-                new DirectoryResultSaver(versionPath.resolve("decompiled").toFile()),
+                new DirectoryResultSaver(versionPath.resolve("decompiled_" + switch (side) {
+                    case CLIENT -> "client";
+                    case SERVER -> "server";
+                    case BOTH -> "joined";
+                }).toFile()),
                 new HashMap<>(),
                 new PrintStreamLogger(System.out)
         );
 
-        decompiler.addSource(clientJarPath.toFile());
+        decompiler.addSource(jarPath.toFile());
         libraryJars.values().forEach(path -> decompiler.addLibrary(path.toFile()));
 
         decompiler.decompileContext();

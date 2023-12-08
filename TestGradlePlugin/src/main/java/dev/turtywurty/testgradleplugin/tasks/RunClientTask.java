@@ -5,6 +5,7 @@ import com.google.gson.JsonObject;
 import dev.turtywurty.testgradleplugin.TestGradlePlugin;
 import dev.turtywurty.testgradleplugin.piston.version.VersionPackage;
 import org.gradle.api.DefaultTask;
+import org.gradle.api.Project;
 import org.gradle.api.file.DirectoryProperty;
 import org.gradle.api.provider.Property;
 import org.gradle.api.tasks.Input;
@@ -56,10 +57,8 @@ public abstract class RunClientTask extends DefaultTask {
             throw new RuntimeException("Client jar does not exist!");
         }
 
-        Path clientMappingsPath = versionFolder.resolve("client_mappings.txt");
-        if (Files.notExists(clientMappingsPath)) {
-            throw new RuntimeException("Client mappings does not exist!");
-        }
+        // add client jar to classpath
+        getProject().getDependencies().add("implementation", getProject().files(clientJarPath));
 
         Path librariesJsonPath = versionFolder.resolve("libraries.json");
         if (Files.notExists(librariesJsonPath)) {
@@ -79,6 +78,11 @@ public abstract class RunClientTask extends DefaultTask {
             throw new RuntimeException("Failed to read libraries json!", exception);
         }
 
+        // add libraries to classpath
+        for (Path path : libraryJars.values()) {
+            getProject().getDependencies().add("implementation", getProject().files(path));
+        }
+
         Path runDir = getRunDir().get().getAsFile().toPath();
         if (Files.notExists(runDir)) {
             throw new RuntimeException("Run directory does not exist!");
@@ -95,7 +99,12 @@ public abstract class RunClientTask extends DefaultTask {
             List<Path> classpathJars = new ArrayList<>(libraryJars.values());
             classpathJars.add(clientJarPath);
             javaExecSpec.setClasspath(getProject().files(classpathJars));
-            javaExecSpec.setArgs(List.of("--accessToken", "****", "--version", getVersion().get()));
+            javaExecSpec.setArgs(List.of(
+                    "--accessToken", "****",
+                    "--version", getVersion().get(),
+                    "--assetIndex", versionPackage.assetIndex().id(),
+                    "--assetsDir", versionFolder.resolve("assets").toAbsolutePath().toString(),
+                    "--userProperties", "{}"));
         });
     }
 }

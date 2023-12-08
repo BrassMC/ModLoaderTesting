@@ -56,32 +56,22 @@ public class OfficialMappingsFile implements MappingFile {
 
             long startRead = System.nanoTime();
             final int totalLines = lines.size();
-            for (int lineIndex = 0; lineIndex < lines.size(); lineIndex++) {
-                String line = lines.get(lineIndex);
-
+            for (String line : lines) {
                 // Empty lines and comments
                 if (line.isBlank() || line.startsWith("#"))
                     continue;
 
-                long start = System.nanoTime();
                 if (line.endsWith(":")) {
                     line = line.replace(":", "").trim();
                     currentParent = parseClass(line, mappingTree);
                 } else if (currentParent instanceof MappingTree.ClassNode classParent && line.contains("->")) {
                     currentParent.addChild(parseMethodOrField(classParent, line));
                 }
-
-                if (lineIndex % 1000 == 0) {
-                    System.out.printf("Parsed line in %d/%d in %dns%n",
-                            lineIndex,
-                            totalLines,
-                            System.nanoTime() - start);
-                }
             }
 
-            System.out.printf("Parsed %d lines in %dns%n",
+            System.out.printf("Parsed %d lines in %dms%n",
                     totalLines,
-                    System.nanoTime() - startRead);
+                    (System.nanoTime() - startRead) / 1_000_000);
         } catch (IOException exception) {
             throw new RuntimeException("Failed to read file!", exception);
         }
