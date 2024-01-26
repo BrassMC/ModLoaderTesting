@@ -3,18 +3,57 @@ package dev.turtywurty.testgradleplugin.tasks;
 import org.gradle.api.DefaultTask;
 import org.gradle.api.file.DirectoryProperty;
 import org.gradle.api.provider.Property;
-import org.gradle.api.tasks.*;
+import org.gradle.api.tasks.Input;
+import org.gradle.api.tasks.Optional;
+import org.gradle.api.tasks.OutputDirectory;
+import org.gradle.api.tasks.TaskAction;
 
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Comparator;
-import java.util.Enumeration;
-import java.util.jar.JarEntry;
-import java.util.jar.JarFile;
+import java.util.List;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipInputStream;
 
-@CacheableTask
 public abstract class ExtractServerTask extends DefaultTask {
+    static void deleteDirectory(Path directory) {
+        try (var paths = Files.walk(directory)) {
+            paths.sorted(Comparator.reverseOrder())
+                    .forEach(path -> {
+                        try {
+                            Files.deleteIfExists(path);
+                        } catch (IOException ignored) {
+                        }
+                    });
+        } catch (IOException exception) {
+            throw new IllegalStateException("Failed to delete directory: " + directory, exception);
+        }
+    }
+
+    static void extractArchive(Path archiveFile, Path destPath) {
+        try (var zipIn = new ZipInputStream(Files.newInputStream(archiveFile))) {
+            Files.createDirectories(destPath);
+
+            ZipEntry entry = zipIn.getNextEntry();
+            while (entry != null) {
+                Path filePath = destPath.resolve(entry.getName());
+                if (entry.isDirectory()) {
+                    Files.createDirectories(filePath);
+                } else if (Files.notExists(filePath.getParent())) {
+                    Files.createDirectories(filePath.getParent());
+                }
+
+                Files.copy(zipIn, filePath);
+
+                zipIn.closeEntry();
+                entry = zipIn.getNextEntry();
+            }
+        } catch (IOException exception) {
+            throw new IllegalStateException("Failed to extract archive: " + archiveFile, exception);
+        }
+    }
+
     @Input
     public abstract Property<String> getVersion();
 
@@ -42,62 +81,48 @@ public abstract class ExtractServerTask extends DefaultTask {
         if (Files.notExists(jarPath))
             throw new IllegalStateException("Server jar does not exist!");
 
-        Path tempOutputDir = versionPath.resolve("temp-server");
-        try {
-            Files.createDirectories(tempOutputDir);
-        } catch (IOException exception) {
-            throw new IllegalStateException("Failed to create output directory!", exception);
-        }
-
-        // extract jar
-        extractJar(jarPath, tempOutputDir);
-
-        Path serverJar = tempOutputDir.resolve("META-INF/versions/%s/server-%s.jar"
-                .formatted(getVersion().get(), getVersion().get())); // TODO: Read from versions.list
-        if (Files.notExists(serverJar))
-            throw new IllegalStateException("Server jar does not exist!");
-
         Path outputDir = versionPath.resolve("server");
-
-        // extract server jar
-        extractJar(serverJar, outputDir);
-
-        // delete temp output dir
-        try {
-            Files.walk(tempOutputDir)
-                    .sorted(Comparator.reverseOrder())
-                    .forEach(path -> {
-                        try {
-                            Files.deleteIfExists(path);
-                        } catch (IOException exception) {
-                            throw new IllegalStateException("Failed to delete file!", exception);
-                        }
-                    });
-        } catch (IOException exception) {
-            throw new IllegalStateException("Failed to delete temp output directory!", exception);
+        if (Files.exists(outputDir)) {
+            // delete output dir
+            deleteDirectory(outputDir);
+        } else {
+            try {
+                Files.createDirectories(outputDir);
+            } catch (IOException exception) {
+                throw new IllegalStateException("Failed to create output directory!", exception);
+            }
         }
-    }
 
-    private static void extractJar(Path jarPath, Path outputDir) {
-        try (var jar = new JarFile(jarPath.toFile())) {
-            int extractedFiles = 0, extractedDirs = 0;
-            Enumeration<JarEntry> entries = jar.entries();
-            while (entries.hasMoreElements()) {
-                JarEntry entry = entries.nextElement();
-                Path destination = outputDir.resolve(entry.getName());
-                if (entry.isDirectory()) {
-                    Files.createDirectories(destination);
-                    extractedDirs++;
-                } else {
-                    Files.createDirectories(destination.getParent());
-                    Files.copy(jar.getInputStream(entry), destination);
-                    extractedFiles++;
-                }
+        extractArchive(jarPath, outputDir);
+
+        if (Files.exists(outputDir.resolve("META-INF/versions/%s/server-%s.jar"))) {
+            // clear output dir
+            Path tempOutputDir = versionPath.resolve("temp-server");
+            try {
+                Files.createDirectories(tempOutputDir);
+            } catch (IOException exception) {
+                throw new IllegalStateException("Failed to create output directory!", exception);
             }
 
-            System.out.printf("Extracted %d files and %d directories!%n", extractedFiles, extractedDirs);
-        } catch (IOException exception) {
-            throw new IllegalStateException("Failed to extract jar!", exception);
+            // move files to temp output dir
+            try (var paths = Files.walk(outputDir)) {
+                paths.forEach(path -> {
+                    try {
+                        Files.move(path, tempOutputDir.resolve(outputDir.relativize(path)));
+                    } catch (IOException exception) {
+                        throw new IllegalStateException("Failed to move file!", exception);
+                    }
+                });
+            } catch (IOException exception) {
+                throw new IllegalStateException("Failed to move files!", exception);
+            }
+
+            extractArchive(tempOutputDir.resolve("META-INF/versions/%s/server-%s.jar"), outputDir);
+
+            // delete temp output dir
+            deleteDirectory(tempOutputDir);
         }
+
+        System.out.println("Finished extracting jar!");
     }
 }

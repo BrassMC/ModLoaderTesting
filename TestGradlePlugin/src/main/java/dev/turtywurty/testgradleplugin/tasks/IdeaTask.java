@@ -89,6 +89,5 @@ public abstract class IdeaTask extends DefaultTask {
         // add dependency to it
 
         IdeaProject ideaProject = project.getExtensions().getByType(IdeaProject.class);
-
     }
 }

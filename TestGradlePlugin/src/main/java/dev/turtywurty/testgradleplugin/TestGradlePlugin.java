@@ -79,14 +79,14 @@ public class TestGradlePlugin implements Plugin<Project> {
         ExtractClientTask extractClientTask = tasks.create("extractClient", ExtractClientTask.class);
         extractClientTask.setGroup("minecraft");
         extractClientTask.setDescription("Extracts the Minecraft client jar.");
-        extractClientTask.dependsOn(downloadClientTask);
+        extractClientTask.dependsOn(downloadClientTask, downloadLibrariesTask);
         extractClientTask.getOutputDir().set(cacheDir.toFile());
         extractClientTask.getVersion().set(minecraftVersion);
 
         ExtractServerTask extractServerTask = tasks.create("extractServer", ExtractServerTask.class);
         extractServerTask.setGroup("minecraft");
         extractServerTask.setDescription("Extracts the Minecraft server jar.");
-        extractServerTask.dependsOn(downloadServerTask);
+        extractServerTask.dependsOn(downloadServerTask, downloadLibrariesTask);
         extractServerTask.getOutputDir().set(cacheDir.toFile());
         extractServerTask.getVersion().set(minecraftVersion);
 
@@ -112,7 +112,7 @@ public class TestGradlePlugin implements Plugin<Project> {
 
         RecompileTask recompileTask = tasks.create("recompile", RecompileTask.class);
         recompileTask.setGroup("minecraft");
-        recompileTask.setDescription("Recompiles the Minecraft client and server jars.");
+        recompileTask.setDescription("Recompiles the Minecraft client and server into a jar.");
         recompileTask.dependsOn(sideProvider.map(side -> switch (side) {
             case CLIENT, SERVER -> new Object[]{remapClassesTask};
             case BOTH -> new Object[]{remapClassesTask, mergeTask};
@@ -124,14 +124,19 @@ public class TestGradlePlugin implements Plugin<Project> {
         DecompileTask decompileTask = tasks.create("decompile", DecompileTask.class);
         decompileTask.setGroup("minecraft");
         decompileTask.setDescription("Decompiles the Minecraft client and server jars.");
-        decompileTask.dependsOn(sideProvider.map(side -> switch (side) {
-            case CLIENT, SERVER -> new Object[]{remapClassesTask};
-            case BOTH -> new Object[]{remapClassesTask, mergeTask};
-        }).getOrElse(new Object[0]));
+        decompileTask.dependsOn(downloadClientTask, downloadLibrariesTask);
         decompileTask.getOutputDir().set(cacheDir.toFile());
         decompileTask.getVersion().set(minecraftVersion);
         decompileTask.getVineflowerVersion().set(extension.getVineflowerVersion());
         decompileTask.getSide().set(sideProvider);
+
+        SourcesStatsTask sourcesStatsTask = tasks.create("sourcesStats", SourcesStatsTask.class);
+        sourcesStatsTask.setGroup("minecraft");
+        sourcesStatsTask.setDescription("Gets the stats of the decompiled Minecraft client and server jars.");
+        sourcesStatsTask.dependsOn(decompileTask);
+        sourcesStatsTask.getOutputDir().set(cacheDir.toFile());
+        sourcesStatsTask.getVersion().set(minecraftVersion);
+        sourcesStatsTask.getSide().set(sideProvider);
 
         RunClientTask runClientTask = tasks.create("runClient", RunClientTask.class);
         runClientTask.setGroup("minecraft");

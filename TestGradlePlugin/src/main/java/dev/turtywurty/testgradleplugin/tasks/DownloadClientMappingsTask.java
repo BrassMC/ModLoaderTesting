@@ -1,7 +1,5 @@
 package dev.turtywurty.testgradleplugin.tasks;
 
-import com.google.gson.JsonObject;
-import dev.turtywurty.testgradleplugin.TestGradlePlugin;
 import dev.turtywurty.testgradleplugin.piston.version.Download;
 import dev.turtywurty.testgradleplugin.piston.version.VersionPackage;
 import org.gradle.api.DefaultTask;
@@ -40,12 +38,49 @@ public abstract class DownloadClientMappingsTask extends DefaultTask {
         VersionPackage versionPackage = VersionPackage.fromPath(versionJsonPath);
         System.out.println("Version package path: " + versionJsonPath);
 
-        Download clientMappingsDownload = versionPackage.downloads().client_mappings();
-        System.out.println("Client Mappings download: " + clientMappingsDownload.url());
+        Path clientMappingsPath = versionPath.resolve("client_mappings.txt");
+        Path clientMappingsHashPath = versionPath.resolve("client_mappings.txt.sha1");
+        // Check if the client mappings hash is already downloaded
+        if (Files.exists(clientMappingsHashPath) && Files.exists(clientMappingsPath)) {
+            String hash = null;
+            try {
+                hash = Files.readString(clientMappingsHashPath);
+            } catch (IOException ignored) {
+            }
 
-        Path mappingsPath = clientMappingsDownload.downloadToPath(versionPath, "client_mappings.txt");
-        System.out.println("Client mappings downloaded to: " + mappingsPath);
+            if (hash != null) {
+                String mappingsHash = versionPackage.downloads().client_mappings().sha1();
+                System.out.println("Client mappings hash: " + mappingsHash);
 
-        System.out.println("Done!");
+                // Check if the client mappings hash matches the hash in the version manifest
+                if (hash.equals(mappingsHash)) {
+                    System.out.println("SKIPPING DOWNLOAD: Client mappings already downloaded!");
+                    return;
+                }
+            }
+        }
+
+        try {
+            Files.deleteIfExists(clientMappingsPath);
+            Files.deleteIfExists(clientMappingsHashPath);
+
+            System.out.println("Client mappings hash mismatch! Re-downloading...");
+
+            Download clientMappingsDownload = versionPackage.downloads().client_mappings();
+            System.out.println("Client mappings download: " + clientMappingsDownload.url());
+
+            String clientMappingsHash = clientMappingsDownload.sha1();
+            System.out.println("Client mappings hash: " + clientMappingsHash);
+            Files.writeString(clientMappingsHashPath, clientMappingsHash);
+
+            Path mappingsPath = clientMappingsDownload.downloadToPath(versionPath);
+            System.out.println("Client mappings downloaded to: " + mappingsPath);
+
+            Files.move(mappingsPath, clientMappingsPath);
+
+            System.out.println("Done!");
+        } catch (IOException exception) {
+            throw new IllegalStateException("Failed to download client mappings!", exception);
+        }
     }
 }

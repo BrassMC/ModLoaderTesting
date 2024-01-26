@@ -21,6 +21,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
+// TODO: Cache this task by comparing the hashes of the libraries
 @CacheableTask
 public abstract class DownloadLibrariesTask extends DefaultTask {
     @Input

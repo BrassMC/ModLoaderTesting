@@ -98,53 +98,54 @@ public abstract class DownloadAssetsTask extends DefaultTask {
             HashSet<String> assetSet = new HashSet<>(assets.size());
             assetKeys.removeIf(key -> key == null || !assetSet.add(assets.get(key).getPath()));
 
-            ExecutorService executor = Executors.newFixedThreadPool(getConcurrentConnections().get());
             final CopyOnWriteArrayList<AssetObject> failedAssets = new CopyOnWriteArrayList<>();
 
             var indexJson = new JsonObject();
             var objectsJson = new JsonObject();
-            for (String key : assetKeys) {
-                AssetObject asset = assets.get(key);
-                long size = asset.size();
-                String hash = asset.hash();
-                String path = asset.getPath();
-                String assetUrl = getAssetsUrl().get() + asset.getPath();
+            try(ExecutorService executor = Executors.newFixedThreadPool(getConcurrentConnections().get())) {
+                for (String key : assetKeys) {
+                    AssetObject asset = assets.get(key);
+                    long size = asset.size();
+                    String hash = asset.hash();
+                    String path = asset.getPath();
+                    String assetUrl = getAssetsUrl().get() + asset.getPath();
 
-                var assetJson = new JsonObject();
-                assetJson.addProperty("hash", hash);
-                assetJson.addProperty("size", size);
-                objectsJson.add(key, assetJson);
+                    var assetJson = new JsonObject();
+                    assetJson.addProperty("hash", hash);
+                    assetJson.addProperty("size", size);
+                    objectsJson.add(key, assetJson);
 
-                Path assetPath = objectsPath.resolve(path);
-                Path minecraftAssetPath = minecraftAssets.resolve(asset.getPath());
+                    Path assetPath = objectsPath.resolve(path);
+                    Path minecraftAssetPath = minecraftAssets.resolve(asset.getPath());
 
-                if (Files.exists(assetPath) && HashingFunction.SHA1.hash(assetPath).equals(hash)) {
-                    // System.out.println("Skipping asset " + path + " as it already exists!");
-                    continue;
-                }
+                    if (Files.exists(assetPath) && HashingFunction.SHA1.hash(assetPath).equals(hash)) {
+                        // System.out.println("Skipping asset " + path + " as it already exists!");
+                        continue;
+                    }
 
-                Runnable copyHandler = () -> {
-                    System.out.println("Copying asset " + path + " from " + minecraftAssetPath + " to " + assetPath + "!");
-                    if (Files.exists(minecraftAssetPath) && HashingFunction.SHA1.hash(minecraftAssetPath).equals(hash)) {
-                        try {
-                            Files.createDirectories(assetPath.getParent());
-                            Files.copy(minecraftAssetPath, assetPath);
-                            return;
-                        } catch (IOException ignored) {
+                    Runnable copyHandler = () -> {
+                        System.out.println("Copying asset " + path + " from " + minecraftAssetPath + " to " + assetPath + "!");
+                        if (Files.exists(minecraftAssetPath) && HashingFunction.SHA1.hash(minecraftAssetPath).equals(hash)) {
+                            try {
+                                Files.createDirectories(assetPath.getParent());
+                                Files.copy(minecraftAssetPath, assetPath);
+                                return;
+                            } catch (IOException ignored) {
+                            }
                         }
-                    }
 
-                    System.out.println("Downloading asset " + path + " from " + assetUrl + " to " + assetPath + "!");
-                    try (InputStream stream = new URL(assetUrl).openStream()) {
-                        Files.createDirectories(assetPath.getParent());
-                        Files.write(assetPath, stream.readAllBytes());
-                    } catch (IOException exception) {
-                        System.out.println("Failed to download asset " + path + " from " + assetUrl + "!");
-                        failedAssets.add(asset);
-                    }
-                };
+                        System.out.println("Downloading asset " + path + " from " + assetUrl + " to " + assetPath + "!");
+                        try (InputStream stream = new URL(assetUrl).openStream()) {
+                            Files.createDirectories(assetPath.getParent());
+                            Files.write(assetPath, stream.readAllBytes());
+                        } catch (IOException exception) {
+                            System.out.println("Failed to download asset " + path + " from " + assetUrl + "!");
+                            failedAssets.add(asset);
+                        }
+                    };
 
-                executor.execute(copyHandler);
+                    executor.execute(copyHandler);
+                }
             }
 
             try {
@@ -152,16 +153,6 @@ public abstract class DownloadAssetsTask extends DefaultTask {
                 Files.writeString(indexesPath, TestGradlePlugin.GSON.toJson(indexJson));
             } catch (IOException exception) {
                 throw new RuntimeException("Failed to write index json!", exception);
-            }
-
-            try {
-                executor.shutdown();
-
-                if (!executor.awaitTermination(Long.MAX_VALUE, TimeUnit.NANOSECONDS)) {
-                    throw new RuntimeException("Timed out while waiting for assets to download!");
-                }
-            } catch (InterruptedException exception) {
-                throw new RuntimeException("Failed to wait for assets to download!", exception);
             }
 
             if (!failedAssets.isEmpty()) {

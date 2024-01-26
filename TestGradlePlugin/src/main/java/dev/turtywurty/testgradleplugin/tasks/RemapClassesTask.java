@@ -79,7 +79,7 @@ public abstract class RemapClassesTask extends DefaultTask {
     }
 
     private static void remap(Path dir, OfficialMappingsFile mappings) {
-        try (var forkJoinPool = new ForkJoinPool(); Stream<Path> paths = Files.list(dir)
+        try (var forkJoinPool = new ForkJoinPool(); Stream<Path> paths = Files.list(dir).parallel()
                 .filter(path -> path.toString().endsWith(".class"))) {
             Path[] pathArray = paths.toArray(Path[]::new);
             Map<String, String> classMappings = new HashMap<>();
@@ -120,9 +120,12 @@ public abstract class RemapClassesTask extends DefaultTask {
     }
 
     private static void remapClass(Path path, Map<String, String> classMappings, Remapper remapper) {
-        String mappedName = classMappings.get(path.getFileName().toString().replace(".class", ""));
+        String className = path.getFileName().toString().replace(".class", "");
+        String mappedName = classMappings.get(className);
         Path mappedPackagePath = path.getParent()
                 .resolve(mappedName.replace(".", "/") + ".class");
+
+        classMappings.put(className, mappedName);
 
         // System.out.printf("Remapping %s to %s%n", className, mappedName);
         try {
@@ -162,7 +165,8 @@ public abstract class RemapClassesTask extends DefaultTask {
 
         @Override
         public String map(String internalName) {
-            return classMappings.getOrDefault(internalName, internalName);
+            String updatedName = classMappings.getOrDefault(internalName, internalName);
+            return updatedName.equals(internalName) ? super.map(internalName) : updatedName.replace(".", "/");
         }
     }
 }

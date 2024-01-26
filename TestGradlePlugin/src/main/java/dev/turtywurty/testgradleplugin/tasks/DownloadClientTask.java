@@ -1,7 +1,5 @@
 package dev.turtywurty.testgradleplugin.tasks;
 
-import com.google.gson.JsonObject;
-import dev.turtywurty.testgradleplugin.TestGradlePlugin;
 import dev.turtywurty.testgradleplugin.piston.version.Download;
 import dev.turtywurty.testgradleplugin.piston.version.VersionPackage;
 import org.gradle.api.DefaultTask;
@@ -12,6 +10,7 @@ import org.gradle.api.tasks.*;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Objects;
 
 @CacheableTask
 public abstract class DownloadClientTask extends DefaultTask {
@@ -40,12 +39,48 @@ public abstract class DownloadClientTask extends DefaultTask {
         VersionPackage versionPackage = VersionPackage.fromPath(versionJsonPath);
         System.out.println("Version package path: " + versionJsonPath);
 
-        Download clientDownload = versionPackage.downloads().client();
-        System.out.println("Client download: " + clientDownload.url());
+        Path clientJarPath = versionPath.resolve("client.jar");
+        Path clientHashPath = versionPath.resolve("client.jar.sha1");
+        // Check if the client hash is already downloaded
+        if (Files.exists(clientHashPath) && Files.exists(clientJarPath)) {
+            String hash = null;
+            try {
+                hash = Files.readString(clientHashPath);
+            } catch (IOException ignored) {}
 
-        Path jarPath = clientDownload.downloadToPath(versionPath);
-        System.out.println("Client jar downloaded to: " + jarPath);
+            if (hash != null) {
+                String jarHash = versionPackage.downloads().client().sha1();
+                System.out.println("Client jar hash: " + jarHash);
 
-        System.out.println("Done!");
+                // Check if the client jar hash matches the hash in the version manifest
+                if (Objects.equals(hash, jarHash)) {
+                    System.out.println("SKIPPING DOWNLOAD: Client jar already downloaded!");
+                    return;
+                }
+            }
+        }
+
+        try {
+            Files.deleteIfExists(clientJarPath);
+            Files.deleteIfExists(clientHashPath);
+
+            System.out.println("Client jar hash mismatch! Re-downloading...");
+
+            Download clientDownload = versionPackage.downloads().client();
+            System.out.println("Client download: " + clientDownload.url());
+
+            String clientHash = clientDownload.sha1();
+            System.out.println("Client hash: " + clientHash);
+            Files.writeString(clientHashPath, clientHash);
+
+            Path jarPath = clientDownload.downloadToPath(versionPath);
+            System.out.println("Client jar downloaded to: " + jarPath);
+
+            Files.move(jarPath, clientJarPath);
+
+            System.out.println("Done!");
+        } catch (IOException exception) {
+            throw new IllegalStateException("Failed to download client jar!", exception);
+        }
     }
 }

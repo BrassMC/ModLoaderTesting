@@ -59,14 +59,6 @@ public abstract class DecompileTask extends DefaultTask {
         if (Files.notExists(jarPath))
             throw new IllegalStateException("Jar '%s' does not exist!".formatted(jarPath));
 
-        Path mappingsPath = versionPath.resolve(switch (side) {
-            case CLIENT -> "client";
-            case SERVER -> "server";
-            case BOTH -> "joined";
-        } + "_mappings.txt");
-        if (Files.notExists(mappingsPath))
-            throw new IllegalStateException("Mappings '%s' does not exist!".formatted(mappingsPath));
-
         Path librariesJsonPath = versionPath.resolve("libraries.json");
         if (Files.notExists(librariesJsonPath))
             throw new IllegalStateException("Libraries json '%s' does not exist!".formatted(librariesJsonPath));
@@ -84,7 +76,7 @@ public abstract class DecompileTask extends DefaultTask {
             throw new IllegalStateException("Failed to read libraries json!", exception);
         }
 
-        BaseDecompiler decompiler = new BaseDecompiler(
+        var decompiler = new BaseDecompiler(
                 new DirectoryResultSaver(versionPath.resolve("decompiled_" + switch (side) {
                     case CLIENT -> "client";
                     case SERVER -> "server";
