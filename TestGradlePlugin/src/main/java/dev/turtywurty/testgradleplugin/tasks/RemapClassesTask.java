@@ -88,7 +88,7 @@ public abstract class RemapClassesTask extends DefaultTask {
             int loaded = 0;
             for (Path file : pathArray) {
                 String className = file.getFileName().toString().replace(".class", "");
-                String mappedName = mappings.findPath(className, MappingFile.NodeType.CLASS);
+                String mappedName = mappings.getClassMappings().get(className);
                 if (mappedName == null) {
                     System.out.printf("Failed to find mapping for %s%n", className);
                     continue;
@@ -127,7 +127,7 @@ public abstract class RemapClassesTask extends DefaultTask {
 
         classMappings.put(className, mappedName);
 
-        // System.out.printf("Remapping %s to %s%n", className, mappedName);
+        System.out.printf("Remapping %s to %s%n", className, mappedName);
         try {
             Files.createDirectories(mappedPackagePath.getParent());
             Files.move(path, mappedPackagePath);

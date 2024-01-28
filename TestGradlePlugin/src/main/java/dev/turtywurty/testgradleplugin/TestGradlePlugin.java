@@ -20,13 +20,13 @@ public class TestGradlePlugin implements Plugin<Project> {
     public void apply(@NotNull Project target) {
         target.getPlugins().apply("java");
 
-        TestGradleExtension extension = target.getExtensions().create("testGradle", TestGradleExtension.class);
+        final TestGradleExtension extension = target.getExtensions().create("testGradle", TestGradleExtension.class);
 
-        Path cacheDir = target.getGradle().getGradleUserHomeDir().toPath().resolve("caches/testGradle");
-        Property<String> minecraftVersion = extension.getMinecraftVersion();
-        Provider<TestGradleExtension.Side> sideProvider = extension.getSideEnum().orElse(TestGradleExtension.Side.BOTH);
+        final Path cacheDir = target.getGradle().getGradleUserHomeDir().toPath().resolve("caches/testGradle");
+        final Property<String> minecraftVersion = extension.getMinecraftVersion();
+        final Provider<TestGradleExtension.Side> sideProvider = extension.getSideEnum().orElse(TestGradleExtension.Side.BOTH);
 
-        TaskContainer tasks = target.getTasks();
+        final TaskContainer tasks = target.getTasks();
 
         DownloadPistonMetaTask downloadPistonMetaTask = tasks.create("downloadPistonMeta", DownloadPistonMetaTask.class);
         downloadPistonMetaTask.setGroup("minecraft");
@@ -41,12 +41,12 @@ public class TestGradlePlugin implements Plugin<Project> {
         downloadClientTask.getOutputDir().set(downloadPistonMetaTask.getOutputDir());
         downloadClientTask.getVersion().set(minecraftVersion);
 
-        DownloadServerTask downloadServerTask = tasks.create("downloadServer", DownloadServerTask.class);
-        downloadServerTask.setGroup("minecraft");
-        downloadServerTask.setDescription("Downloads the Minecraft server jar.");
-        downloadServerTask.dependsOn(downloadPistonMetaTask);
-        downloadServerTask.getOutputDir().set(cacheDir.toFile());
-        downloadServerTask.getVersion().set(minecraftVersion);
+        ExtractClientTask extractClientTask = tasks.create("extractClient", ExtractClientTask.class);
+        extractClientTask.setGroup("minecraft");
+        extractClientTask.setDescription("Extracts the Minecraft client jar.");
+        extractClientTask.dependsOn(downloadClientTask);
+        extractClientTask.getInputDir().set(cacheDir.toFile());
+        extractClientTask.getVersion().set(minecraftVersion);
 
         DownloadClientMappingsTask downloadClientMappingsTask = tasks.create("downloadClientMappings", DownloadClientMappingsTask.class);
         downloadClientMappingsTask.setGroup("minecraft");
@@ -54,6 +54,20 @@ public class TestGradlePlugin implements Plugin<Project> {
         downloadClientMappingsTask.dependsOn(downloadPistonMetaTask);
         downloadClientMappingsTask.getOutputDir().set(cacheDir.toFile());
         downloadClientMappingsTask.getVersion().set(minecraftVersion);
+
+        DownloadServerTask downloadServerTask = tasks.create("downloadServer", DownloadServerTask.class);
+        downloadServerTask.setGroup("minecraft");
+        downloadServerTask.setDescription("Downloads the Minecraft server jar.");
+        downloadServerTask.dependsOn(downloadPistonMetaTask);
+        downloadServerTask.getOutputDir().set(cacheDir.toFile());
+        downloadServerTask.getVersion().set(minecraftVersion);
+
+        ExtractServerTask extractServerTask = tasks.create("extractServer", ExtractServerTask.class);
+        extractServerTask.setGroup("minecraft");
+        extractServerTask.setDescription("Extracts the Minecraft server jar.");
+        extractServerTask.dependsOn(downloadServerTask);
+        extractServerTask.getInputDir().set(cacheDir.toFile());
+        extractServerTask.getVersion().set(minecraftVersion);
 
         DownloadServerMappingsTask downloadServerMappingsTask = tasks.create("downloadServerMappings", DownloadServerMappingsTask.class);
         downloadServerMappingsTask.setGroup("minecraft");
@@ -76,27 +90,13 @@ public class TestGradlePlugin implements Plugin<Project> {
         downloadLibrariesTask.getOutputDir().set(cacheDir.toFile());
         downloadLibrariesTask.getVersion().set(minecraftVersion);
 
-        ExtractClientTask extractClientTask = tasks.create("extractClient", ExtractClientTask.class);
-        extractClientTask.setGroup("minecraft");
-        extractClientTask.setDescription("Extracts the Minecraft client jar.");
-        extractClientTask.dependsOn(downloadClientTask, downloadLibrariesTask);
-        extractClientTask.getOutputDir().set(cacheDir.toFile());
-        extractClientTask.getVersion().set(minecraftVersion);
-
-        ExtractServerTask extractServerTask = tasks.create("extractServer", ExtractServerTask.class);
-        extractServerTask.setGroup("minecraft");
-        extractServerTask.setDescription("Extracts the Minecraft server jar.");
-        extractServerTask.dependsOn(downloadServerTask, downloadLibrariesTask);
-        extractServerTask.getOutputDir().set(cacheDir.toFile());
-        extractServerTask.getVersion().set(minecraftVersion);
-
         RemapClassesTask remapClassesTask = tasks.create("remapClasses", RemapClassesTask.class);
         remapClassesTask.setGroup("minecraft");
         remapClassesTask.setDescription("Remaps the Minecraft client and server jars.");
         remapClassesTask.dependsOn(sideProvider.map(side -> switch (side) {
             case CLIENT -> new Object[]{extractClientTask, downloadClientMappingsTask};
             case SERVER -> new Object[]{extractServerTask, downloadServerMappingsTask};
-            case BOTH -> new Object[]{extractClientTask, downloadClientMappingsTask, extractServerTask, downloadServerMappingsTask};
+            case BOTH -> new Object[]{extractClientTask, extractServerTask, downloadClientMappingsTask, downloadServerMappingsTask};
         }).getOrElse(new Object[0]));
         remapClassesTask.getOutputDir().set(cacheDir.toFile());
         remapClassesTask.getVersion().set(minecraftVersion);

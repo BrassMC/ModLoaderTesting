@@ -1,30 +1,28 @@
 package dev.turtywurty.testgradleplugin.tasks;
 
+import dev.turtywurty.testgradleplugin.util.FileUtil;
 import org.gradle.api.DefaultTask;
 import org.gradle.api.file.DirectoryProperty;
 import org.gradle.api.provider.Property;
-import org.gradle.api.tasks.Input;
-import org.gradle.api.tasks.Optional;
-import org.gradle.api.tasks.OutputDirectory;
-import org.gradle.api.tasks.TaskAction;
+import org.gradle.api.tasks.*;
+import org.gradle.work.DisableCachingByDefault;
 
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
+@DisableCachingByDefault(because = "It's unnecessary")
 public abstract class ExtractClientTask extends DefaultTask {
     @Input
     public abstract Property<String> getVersion();
 
-    @OutputDirectory
+    @InputDirectory
     @Optional
-    public abstract DirectoryProperty getOutputDir();
+    public abstract DirectoryProperty getInputDir();
 
     @TaskAction
     public void extractJar() {
-        System.out.println("Extracting jar!");
-
-        Path versionPath = getOutputDir()
+        Path versionPath = getInputDir()
                 .getOrElse(getProject()
                         .getLayout()
                         .getBuildDirectory()
@@ -41,18 +39,17 @@ public abstract class ExtractClientTask extends DefaultTask {
             throw new IllegalStateException("Client jar does not exist!");
 
         Path outputDir = versionPath.resolve("client");
-        if (Files.exists(outputDir))
-            ExtractServerTask.deleteDirectory(outputDir);
-
         try {
-            Files.createDirectories(outputDir);
+            if (Files.notExists(outputDir))
+                Files.createDirectories(outputDir);
+            else
+                FileUtil.deleteDirectory(outputDir);
         } catch (IOException exception) {
             throw new IllegalStateException("Failed to create output directory!", exception);
         }
 
-        // extract archive
         long start = System.nanoTime();
-        ExtractServerTask.extractArchive(jarPath, outputDir);
-        System.out.println("Extracted jar in " + (System.nanoTime() - start) / 1_000_000_000 + " seconds!");
+        FileUtil.extractArchive(getProject(), jarPath, outputDir);
+        System.out.println("Extracted client jar in " + (System.nanoTime() - start) / 1_000_000_000 + " seconds!");
     }
 }

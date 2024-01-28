@@ -15,17 +15,22 @@ import org.gradle.api.tasks.*;
 
 import java.io.IOException;
 import java.io.InputStream;
-import java.net.URL;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
 
 @CacheableTask
 public abstract class DownloadAssetsTask extends DefaultTask {
+    public DownloadAssetsTask() {
+        getAssetsUrl().convention("https://resources.download.minecraft.net/");
+        getConcurrentConnections().convention(8);
+    }
+
     @Input
     public abstract Property<String> getVersion();
 
@@ -40,11 +45,6 @@ public abstract class DownloadAssetsTask extends DefaultTask {
     @Input
     @Optional
     public abstract Property<Integer> getConcurrentConnections();
-
-    public DownloadAssetsTask() {
-        getAssetsUrl().convention("https://resources.download.minecraft.net/");
-        getConcurrentConnections().convention(8);
-    }
 
     @TaskAction
     public void downloadAssets() {
@@ -70,11 +70,11 @@ public abstract class DownloadAssetsTask extends DefaultTask {
         System.out.println("Assets url: " + assetsUrl);
 
         AssetIndexHash assetIndexHash;
-        try (InputStream stream = new URL(assetsUrl).openStream()) {
+        try (InputStream stream = new URI(assetsUrl).toURL().openStream()) {
             var jsonStr = new String(stream.readAllBytes());
             JsonObject json = TestGradlePlugin.GSON.fromJson(jsonStr, JsonObject.class);
             assetIndexHash = AssetIndexHash.fromJson(json);
-        } catch (IOException exception) {
+        } catch (IOException | URISyntaxException exception) {
             throw new RuntimeException("Failed to download asset index!", exception);
         }
 
@@ -102,7 +102,7 @@ public abstract class DownloadAssetsTask extends DefaultTask {
 
             var indexJson = new JsonObject();
             var objectsJson = new JsonObject();
-            try(ExecutorService executor = Executors.newFixedThreadPool(getConcurrentConnections().get())) {
+            try (ExecutorService executor = Executors.newFixedThreadPool(getConcurrentConnections().get())) {
                 for (String key : assetKeys) {
                     AssetObject asset = assets.get(key);
                     long size = asset.size();
@@ -135,10 +135,10 @@ public abstract class DownloadAssetsTask extends DefaultTask {
                         }
 
                         System.out.println("Downloading asset " + path + " from " + assetUrl + " to " + assetPath + "!");
-                        try (InputStream stream = new URL(assetUrl).openStream()) {
+                        try (InputStream stream = new URI(assetUrl).toURL().openStream()) {
                             Files.createDirectories(assetPath.getParent());
                             Files.write(assetPath, stream.readAllBytes());
-                        } catch (IOException exception) {
+                        } catch (IOException | URISyntaxException exception) {
                             System.out.println("Failed to download asset " + path + " from " + assetUrl + "!");
                             failedAssets.add(asset);
                         }

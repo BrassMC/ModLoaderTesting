@@ -3,80 +3,16 @@ package dev.turtywurty.testgradleplugin.mappings;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
+import java.util.*;
 
 public class OfficialMappingsFile implements MappingFile {
+    private final Map<String, String> classMappings = new HashMap<>();
+    private final Map<String, String> methodMappings = new HashMap<>();
+    private final Map<String, String> fieldMappings = new HashMap<>();
     private final MappingTree mappingTree;
 
     public OfficialMappingsFile(Path path) {
         this.mappingTree = parseMappings(path);
-    }
-
-    @Override
-    public String findPath(String name, MappingFile.NodeType nodeType) {
-        MappingTree.MappingNode node = this.mappingTree.findNodeFull(mappingNode -> switch (nodeType) {
-            case PACKAGE -> nodeType.getPredicate().test(mappingNode) && mappingNode.getName().equals(name);
-            case CLASS, METHOD, FIELD -> nodeType.getPredicate().test(mappingNode) &&
-                    ((MappingTree.ObfuscatedNode) mappingNode).getObfuscatedName().equals(name);
-            default -> false;
-        });
-
-        if (node == null)
-            return null;
-
-        List<String> packages = new ArrayList<>();
-        while (node != null) {
-            packages.add(node.getName());
-            node = node.getParent();
-        }
-
-        var builder = new StringBuilder();
-        for (int i = packages.size() - 1; i >= 0; i--) {
-            builder.append(packages.get(i));
-            if (i != 0)
-                builder.append(".");
-        }
-
-        return builder.toString();
-    }
-
-    @Override
-    public MappingTree parseMappings(Path path) {
-        if (Files.notExists(path)) {
-            throw new IllegalArgumentException("File does not exist!");
-        }
-
-        var mappingTree = new MappingTree();
-
-        try (var linesStream = Files.lines(path)) {
-            List<String> lines = linesStream.toList();
-            MappingTree.MappingNode currentParent = null;
-
-            long startRead = System.nanoTime();
-            final int totalLines = lines.size();
-            for (String line : lines) {
-                // Empty lines and comments
-                if (line.isBlank() || line.startsWith("#"))
-                    continue;
-
-                if (line.endsWith(":")) {
-                    line = line.replace(":", "").trim();
-                    currentParent = parseClass(line, mappingTree);
-                } else if (currentParent instanceof MappingTree.ClassNode classParent && line.contains("->")) {
-                    currentParent.addChild(parseMethodOrField(classParent, line));
-                }
-            }
-
-            System.out.printf("Parsed %d lines in %dms%n",
-                    totalLines,
-                    (System.nanoTime() - startRead) / 1_000_000);
-        } catch (IOException exception) {
-            throw new RuntimeException("Failed to read file!", exception);
-        }
-
-        return mappingTree;
     }
 
     private static MappingTree.MappingNode parseClass(String line, MappingTree mappingTree) {
@@ -156,6 +92,91 @@ public class OfficialMappingsFile implements MappingFile {
 
             return new MappingTree.MethodNode(name, obfuscatedName, fromLine, toLine, returnType, params, parent);
         }
+    }
+
+    public Map<String, String> getClassMappings() {
+        return classMappings;
+    }
+
+    public Map<String, String> getMethodMappings() {
+        return methodMappings;
+    }
+
+    public Map<String, String> getFieldMappings() {
+        return fieldMappings;
+    }
+
+    @Override
+    public String findPath(String name, MappingFile.NodeType nodeType) {
+        MappingTree.MappingNode node = this.mappingTree.findNodeFull(mappingNode -> switch (nodeType) {
+            case PACKAGE -> nodeType.getPredicate().test(mappingNode) && mappingNode.getName().equals(name);
+            case CLASS, METHOD, FIELD -> nodeType.getPredicate().test(mappingNode) &&
+                    ((MappingTree.ObfuscatedNode) mappingNode).getObfuscatedName().equals(name);
+            default -> false;
+        });
+
+        if (node == null)
+            return null;
+
+        List<String> packages = new ArrayList<>();
+        while (node != null) {
+            packages.add(node.getName());
+            node = node.getParent();
+        }
+
+        var builder = new StringBuilder();
+        for (int i = packages.size() - 1; i >= 0; i--) {
+            builder.append(packages.get(i));
+            if (i != 0)
+                builder.append(".");
+        }
+
+        return builder.toString();
+    }
+
+    @Override
+    public MappingTree parseMappings(Path path) {
+        if (Files.notExists(path)) {
+            throw new IllegalArgumentException("File does not exist!");
+        }
+
+        var mappingTree = new MappingTree();
+
+        try (var linesStream = Files.lines(path)) {
+            List<String> lines = linesStream.toList();
+            MappingTree.MappingNode currentParent = null;
+
+            long startRead = System.nanoTime();
+            final int totalLines = lines.size();
+            for (String line : lines) {
+                // Empty lines and comments
+                if (line.isBlank() || line.startsWith("#"))
+                    continue;
+
+                if (line.endsWith(":")) {
+                    line = line.replace(":", "").trim();
+                    currentParent = parseClass(line, mappingTree);
+                    classMappings.put(((MappingTree.ClassNode) currentParent).getObfuscatedName(), currentParent.getName());
+                } else if (currentParent instanceof MappingTree.ClassNode classParent && line.contains("->")) {
+                    MappingTree.ObfuscatedNode node = parseMethodOrField(classParent, line);
+                    currentParent.addChild(node);
+
+                    if (node instanceof MappingTree.MethodNode) {
+                        methodMappings.put(node.getObfuscatedName(), node.getName());
+                    } else if (node instanceof MappingTree.FieldNode) {
+                        fieldMappings.put(node.getObfuscatedName(), node.getName());
+                    }
+                }
+            }
+
+            System.out.printf("Parsed %d lines in %dms%n",
+                    totalLines,
+                    (System.nanoTime() - startRead) / 1_000_000);
+        } catch (IOException exception) {
+            throw new RuntimeException("Failed to read file!", exception);
+        }
+
+        return mappingTree;
     }
 
     @Override
