@@ -5,17 +5,18 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import dev.turtywurty.testgradleplugin.TestGradlePlugin;
 
+import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URI;
 import java.net.URISyntaxException;
-import java.net.URL;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 
 public class PistonMeta {
+    public static final String META_URL = "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json";
     private final PistonMetaLatestVersion latest;
     private final List<PistonMetaVersion> versions = new ArrayList<>();
 
@@ -24,7 +25,7 @@ public class PistonMeta {
             String json = Files.readString(metaPath);
             System.out.println("Piston meta json: " + json);
             JsonObject object = TestGradlePlugin.GSON.fromJson(json, JsonObject.class);
-            if(object.has("latest")) {
+            if (object.has("latest")) {
                 JsonObject latest = object.getAsJsonObject("latest");
                 this.latest = TestGradlePlugin.GSON.fromJson(latest, PistonMetaLatestVersion.class);
             } else {
@@ -42,17 +43,14 @@ public class PistonMeta {
         }
     }
 
-    public static final String META_URL = "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json";
-
     public static void download(Path path) {
-        try(InputStream stream = new URL(META_URL).openStream()) {
+        try (InputStream stream = new URI(META_URL).toURL().openStream()) {
             String json = new String(stream.readAllBytes());
-            Files.createDirectories(path);
-            Path metaPath = path.resolve("version_manifest.json");
-            Files.writeString(metaPath, json);
+            Files.createDirectories(path.getParent());
+            Files.writeString(path, json);
 
-            System.out.println("Piston meta downloaded to: " + metaPath);
-        } catch (IOException exception) {
+            System.out.println("Piston meta downloaded to: " + path);
+        } catch (IOException | URISyntaxException exception) {
             throw new RuntimeException("Failed to download piston meta!", exception);
         }
     }

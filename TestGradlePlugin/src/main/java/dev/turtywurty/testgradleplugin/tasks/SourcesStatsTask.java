@@ -1,12 +1,8 @@
 package dev.turtywurty.testgradleplugin.tasks;
 
-import dev.turtywurty.testgradleplugin.extensions.TestGradleExtension;
-import org.gradle.api.DefaultTask;
-import org.gradle.api.file.DirectoryProperty;
-import org.gradle.api.provider.Property;
-import org.gradle.api.tasks.Input;
-import org.gradle.api.tasks.Optional;
-import org.gradle.api.tasks.OutputDirectory;
+import dev.turtywurty.testgradleplugin.util.FileUtil;
+import org.gradle.api.tasks.Classpath;
+import org.gradle.api.tasks.InputDirectory;
 import org.gradle.api.tasks.TaskAction;
 
 import java.io.IOException;
@@ -16,43 +12,26 @@ import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
-public abstract class SourcesStatsTask extends DefaultTask {
-    @Input
-    public abstract Property<String> getVersion();
+public class SourcesStatsTask extends DefaultTestGradleTask {
+    @InputDirectory
+    @Classpath
+    private final Path decompiledPath;
 
-    @Input
-    public abstract Property<TestGradleExtension.Side> getSide();
+    public SourcesStatsTask() {
+        Path cacheDir = getCacheDir();
+        Path versionPath = cacheDir.resolve(getMinecraftVersion());
 
-    @OutputDirectory
-    @Optional
-    public abstract DirectoryProperty getOutputDir();
-
-    @TaskAction
-    public void run() {
-        System.out.println("Version: " + getVersion().get());
-        System.out.println("Side: " + getSide().get());
-        System.out.println("Output Dir: " + getOutputDir().getOrNull());
-
-        Path versionPath = getOutputDir()
-                .orElse(getProject()
-                        .getLayout()
-                        .getBuildDirectory()
-                        .dir("minecraft")
-                        .get())
-                .get()
-                .getAsFile()
-                .toPath()
-                .resolve(getVersion().get());
-
-        System.out.println("Version Path: " + versionPath);
-
-        TestGradleExtension.Side side = getSide().get();
-
-        Path decompiledPath = versionPath.resolve("decompiled_" + switch (side) {
+        this.decompiledPath = versionPath.resolve("decompiled_" + switch (getSide()) {
             case CLIENT -> "client";
             case SERVER -> "server";
             case BOTH -> "joined";
         });
+    }
+
+    @TaskAction
+    public void run() {
+        System.out.println("Version: " + getMinecraftVersion());
+        System.out.println("Side: " + getSide());
 
         if (Files.notExists(decompiledPath))
             throw new IllegalStateException("Decompiled path '%s' does not exist!".formatted(decompiledPath));
@@ -66,9 +45,8 @@ public abstract class SourcesStatsTask extends DefaultTask {
         var lineCount = new AtomicInteger(0);
         var lineNoWhitespaceCount = new AtomicInteger(0);
         var charCount = new AtomicLong(0);
-        try {
-            Files.walk(decompiledPath)
-                    .filter(Files::isRegularFile)
+        try (var stream = Files.walk(decompiledPath)) {
+            stream.filter(Files::isRegularFile)
                     .forEach(path -> {
                         count.incrementAndGet();
                         if (path.toString().endsWith(".java")) {
@@ -87,12 +65,7 @@ public abstract class SourcesStatsTask extends DefaultTask {
                             } catch (IOException exception) {
                                 throw new IllegalStateException("Failed to count lines in file '%s'!".formatted(path), exception);
                             }
-                        } else if (!path.toString().endsWith(".png") &&
-                                !path.toString().endsWith(".nbt") &&
-                                !path.toString().endsWith(".RSA") &&
-                                !path.toString().endsWith(".MF") &&
-                                !path.toString().endsWith(".SF") &&
-                                !path.toString().endsWith(".DSA")) {
+                        } else if (!FileUtil.isBinaryFile(path)) {
                             try {
                                 List<String> lines = Files.readAllLines(path);
                                 lineCount.addAndGet(lines.size());
@@ -118,5 +91,9 @@ public abstract class SourcesStatsTask extends DefaultTask {
         System.out.println("Line Count: " + lineCount.get());
         System.out.println("Line No Whitespace Count: " + lineNoWhitespaceCount.get());
         System.out.println("Char Count: " + charCount.get());
+    }
+
+    public Path getDecompiledPath() {
+        return decompiledPath;
     }
 }

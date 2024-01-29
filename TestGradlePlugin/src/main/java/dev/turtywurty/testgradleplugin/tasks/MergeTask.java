@@ -1,9 +1,7 @@
 package dev.turtywurty.testgradleplugin.tasks;
 
 import dev.turtywurty.testgradleplugin.extensions.TestGradleExtension;
-import org.gradle.api.DefaultTask;
-import org.gradle.api.file.DirectoryProperty;
-import org.gradle.api.provider.Property;
+import dev.turtywurty.testgradleplugin.util.FileUtil;
 import org.gradle.api.tasks.*;
 
 import java.io.IOException;
@@ -12,50 +10,45 @@ import java.nio.file.Path;
 import java.util.stream.Stream;
 
 @CacheableTask
-public abstract class MergeTask extends DefaultTask {
-    @Input
-    public abstract Property<String> getVersion();
-
-    @Input
-    public abstract Property<TestGradleExtension.Side> getSide();
+public class MergeTask extends DefaultTestGradleTask {
+    @InputDirectory
+    @Classpath
+    private final Path clientDir, serverDir;
 
     @OutputDirectory
-    @Optional
-    public abstract DirectoryProperty getOutputDir();
+    private final Path joinedDir;
+
+    public MergeTask() {
+        Path cacheDir = getCacheDir();
+        Path versionPath = cacheDir.resolve(getMinecraftVersion());
+
+        this.clientDir = versionPath.resolve("client");
+        this.serverDir = versionPath.resolve("server");
+        this.joinedDir = versionPath.resolve("joined");
+    }
 
     @TaskAction
     public void mergeJar() {
         System.out.println("Merging client and server!");
 
-        Path versionPath = getOutputDir()
-                .getOrElse(getProject()
-                        .getLayout()
-                        .getBuildDirectory()
-                        .dir("minecraft")
-                        .get())
-                .getAsFile()
-                .toPath()
-                .resolve(getVersion().get());
-
-        TestGradleExtension.Side side = getSide().get();
-        if(side != TestGradleExtension.Side.BOTH)
+        TestGradleExtension.Side side = getSide();
+        if (side != TestGradleExtension.Side.BOTH)
             return;
 
-        Path clientDir = versionPath.resolve("client");
-        Path serverDir = versionPath.resolve("server");
         if (Files.notExists(clientDir))
             throw new IllegalStateException("Client directory is missing, please run the extractClient task!");
         if (Files.notExists(serverDir))
             throw new IllegalStateException("Server directory is missing, please run the extractServer task!");
 
-        Path joinedDir = versionPath.resolve("joined");
-        if (Files.notExists(joinedDir)) {
-            try {
-                Files.createDirectories(joinedDir);
-            } catch (IOException exception) {
-                throw new IllegalStateException("Failed to create joined directory!", exception);
+        try {
+            if (Files.exists(joinedDir)) {
+                FileUtil.deleteDirectory(joinedDir);
             }
-        } else {} // TODO: Clear and recreate the directory
+
+            Files.createDirectories(joinedDir);
+        } catch (IOException exception) {
+            throw new IllegalStateException("Failed to create joined directory!", exception);
+        }
 
         try (Stream<Path> clientFiles = Files.walk(clientDir)) {
             clientFiles.forEach(clientFile -> {
@@ -98,5 +91,17 @@ public abstract class MergeTask extends DefaultTask {
         }
 
         System.out.println("Finished merging jars!");
+    }
+
+    public Path getClientDir() {
+        return clientDir;
+    }
+
+    public Path getServerDir() {
+        return serverDir;
+    }
+
+    public Path getJoinedDir() {
+        return joinedDir;
     }
 }

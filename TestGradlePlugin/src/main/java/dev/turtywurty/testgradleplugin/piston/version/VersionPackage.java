@@ -7,7 +7,8 @@ import dev.turtywurty.testgradleplugin.piston.PistonMetaVersion;
 
 import java.io.IOException;
 import java.io.InputStream;
-import java.net.URL;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -68,15 +69,12 @@ public record VersionPackage(Arguments arguments, AssetIndex assetIndex, String 
         return versionPackage;
     }
 
-    public static void download(PistonMetaVersion metaVersion, Path outputDir) {
-        Path versionPath = outputDir.resolve(metaVersion.id());
-        Path versionJson = versionPath.resolve("version.json");
-
+    public static void download(PistonMetaVersion metaVersion, Path outputFile) {
         String url = metaVersion.url();
-        try(InputStream inputStream = new URL(url).openStream()) {
-            Files.createDirectories(versionPath);
-            Files.write(versionJson, inputStream.readAllBytes());
-        } catch (IOException exception) {
+        try (InputStream inputStream = new URI(url).toURL().openStream()) {
+            Files.createDirectories(Files.isDirectory(outputFile) ? outputFile : outputFile.getParent());
+            Files.write(outputFile, inputStream.readAllBytes());
+        } catch (IOException | URISyntaxException exception) {
             throw new RuntimeException("Failed to download version!", exception);
         }
     }

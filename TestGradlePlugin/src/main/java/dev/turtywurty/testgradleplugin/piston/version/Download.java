@@ -5,6 +5,8 @@ import dev.turtywurty.testgradleplugin.TestGradlePlugin;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.net.URL;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -32,9 +34,9 @@ public record Download(String sha1, long size, String url) {
             throw new RuntimeException("Failed to create directories for " + resolved + "!", exception);
         }
 
-        try (InputStream inputStream = new URL(this.url).openStream()) {
+        try (InputStream inputStream = new URI(this.url).toURL().openStream()) {
             Files.write(resolved, inputStream.readAllBytes());
-        } catch (IOException exception) {
+        } catch (IOException | URISyntaxException exception) {
             throw new RuntimeException("Failed to download " + this.url + "!", exception);
         }
 

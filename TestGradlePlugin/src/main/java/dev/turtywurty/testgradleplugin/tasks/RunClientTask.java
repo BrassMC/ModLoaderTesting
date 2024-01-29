@@ -4,14 +4,7 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import dev.turtywurty.testgradleplugin.TestGradlePlugin;
 import dev.turtywurty.testgradleplugin.piston.version.VersionPackage;
-import org.gradle.api.DefaultTask;
-import org.gradle.api.Project;
-import org.gradle.api.file.DirectoryProperty;
-import org.gradle.api.provider.Property;
-import org.gradle.api.tasks.Input;
-import org.gradle.api.tasks.Optional;
-import org.gradle.api.tasks.OutputDirectory;
-import org.gradle.api.tasks.TaskAction;
+import org.gradle.api.tasks.*;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -21,59 +14,60 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-public abstract class RunClientTask extends DefaultTask {
-    @Input
-    public abstract Property<String> getVersion();
+public class RunClientTask extends DefaultTestGradleTask {
+    @InputFile
+    @Classpath
+    private final Path versionJsonPath, librariesJsonPath, clientJarPath;
+
+    @InputDirectory
+    @Classpath
+    private final Path assetsDir;
 
     @OutputDirectory
-    @Optional
-    public abstract DirectoryProperty getOutputDir();
+    private final Path runDir;
 
-    @OutputDirectory
-    public abstract DirectoryProperty getRunDir();
+    public RunClientTask() {
+        Path cacheDir = getCacheDir();
+        Path versionPath = cacheDir.resolve(getMinecraftVersion());
+
+        this.versionJsonPath = versionPath.resolve("version.json");
+        this.librariesJsonPath = versionPath.resolve("libraries.json");
+        this.clientJarPath = versionPath.resolve("client.jar");
+
+        Path projectDir = getProject().getProjectDir().toPath();
+        this.assetsDir = projectDir.resolve("assets");
+        this.runDir = projectDir.resolve("run");
+    }
+
+    public static void readLibraries(Map<String, Path> libraryJars, Path librariesJsonPath) throws IOException {
+        String librariesJson = Files.readString(librariesJsonPath);
+        JsonObject librariesObject = TestGradlePlugin.GSON.fromJson(librariesJson, JsonObject.class);
+        for (Map.Entry<String, JsonElement> entry : librariesObject.entrySet()) {
+            String name = entry.getKey();
+            String path = entry.getValue().getAsString();
+            libraryJars.put(name, Path.of(path));
+        }
+    }
 
     @TaskAction
     public void downloadClient() {
-        Path versionFolder = getOutputDir()
-                .orElse(getProject()
-                        .getLayout()
-                        .getBuildDirectory()
-                        .dir("minecraft")
-                        .get())
-                .get()
-                .getAsFile()
-                .toPath()
-                .resolve(getVersion().get());
-
-        Path versionJsonPath = versionFolder.resolve("version.json");
-        if (Files.notExists(versionJsonPath)) {
+        if (Files.notExists(versionJsonPath))
             throw new RuntimeException("Version json does not exist!");
-        }
 
         VersionPackage versionPackage = VersionPackage.fromPath(versionJsonPath);
 
-        Path clientJarPath = versionFolder.resolve("client.jar");
-        if (Files.notExists(clientJarPath)) {
+        if (Files.notExists(clientJarPath))
             throw new RuntimeException("Client jar does not exist!");
-        }
 
         // add client jar to classpath
         getProject().getDependencies().add("implementation", getProject().files(clientJarPath));
 
-        Path librariesJsonPath = versionFolder.resolve("libraries.json");
-        if (Files.notExists(librariesJsonPath)) {
+        if (Files.notExists(librariesJsonPath))
             throw new RuntimeException("Libraries json does not exist!");
-        }
 
         Map<String, Path> libraryJars = new HashMap<>();
         try {
-            String librariesJson = Files.readString(librariesJsonPath);
-            JsonObject librariesObject = TestGradlePlugin.GSON.fromJson(librariesJson, JsonObject.class);
-            for (Map.Entry<String, JsonElement> entry : librariesObject.entrySet()) {
-                String name = entry.getKey();
-                String path = entry.getValue().getAsString();
-                libraryJars.put(name, Path.of(path));
-            }
+            readLibraries(libraryJars, librariesJsonPath);
         } catch (IOException exception) {
             throw new RuntimeException("Failed to read libraries json!", exception);
         }
@@ -83,10 +77,16 @@ public abstract class RunClientTask extends DefaultTask {
             getProject().getDependencies().add("implementation", getProject().files(path));
         }
 
-        Path runDir = getRunDir().get().getAsFile().toPath();
         if (Files.notExists(runDir)) {
-            throw new RuntimeException("Run directory does not exist!");
+            try {
+                Files.createDirectories(runDir);
+            } catch (IOException exception) {
+                throw new RuntimeException("Failed to create run directory!", exception);
+            }
         }
+
+        if (Files.notExists(assetsDir))
+            System.err.println("Assets directory does not exist!");
 
         getProject().javaexec(javaExecSpec -> {
             javaExecSpec.getMainClass().set(versionPackage.mainClass());
@@ -101,10 +101,30 @@ public abstract class RunClientTask extends DefaultTask {
             javaExecSpec.setClasspath(getProject().files(classpathJars));
             javaExecSpec.setArgs(List.of(
                     "--accessToken", "****",
-                    "--version", getVersion().get(),
+                    "--version", getMinecraftVersion(),
                     "--assetIndex", versionPackage.assetIndex().id(),
-                    "--assetsDir", versionFolder.resolve("assets").toAbsolutePath().toString(),
+                    "--assetsDir", assetsDir.toAbsolutePath().toString(),
                     "--userProperties", "{}"));
         });
+    }
+
+    public Path getVersionJsonPath() {
+        return versionJsonPath;
+    }
+
+    public Path getLibrariesJsonPath() {
+        return librariesJsonPath;
+    }
+
+    public Path getClientJarPath() {
+        return clientJarPath;
+    }
+
+    public Path getAssetsDir() {
+        return assetsDir;
+    }
+
+    public Path getRunDir() {
+        return runDir;
     }
 }

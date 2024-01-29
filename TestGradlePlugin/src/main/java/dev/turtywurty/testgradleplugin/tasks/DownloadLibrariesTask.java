@@ -6,9 +6,6 @@ import dev.turtywurty.testgradleplugin.OperatingSystem;
 import dev.turtywurty.testgradleplugin.piston.version.Download;
 import dev.turtywurty.testgradleplugin.piston.version.Library;
 import dev.turtywurty.testgradleplugin.piston.version.VersionPackage;
-import org.gradle.api.DefaultTask;
-import org.gradle.api.file.DirectoryProperty;
-import org.gradle.api.provider.Property;
 import org.gradle.api.tasks.*;
 import org.jetbrains.annotations.NotNull;
 
@@ -23,30 +20,49 @@ import java.util.Map;
 
 // TODO: Cache this task by comparing the hashes of the libraries
 @CacheableTask
-public abstract class DownloadLibrariesTask extends DefaultTask {
-    @Input
-    public abstract Property<String> getVersion();
+public class DownloadLibrariesTask extends DefaultTestGradleTask {
+    @InputFile
+    @Classpath
+    private final Path versionJsonPath;
 
     @OutputDirectory
-    @Optional
-    public abstract DirectoryProperty getOutputDir();
+    private final Path librariesPath;
+
+    @OutputFile
+    private final Path librariesJsonPath;
+
+    public DownloadLibrariesTask() {
+        Path cacheDir = getCacheDir();
+        Path versionPath = cacheDir.resolve(getMinecraftVersion());
+
+        this.versionJsonPath = versionPath.resolve("version.json");
+        this.librariesPath = versionPath.resolve("libraries");
+        this.librariesJsonPath = versionPath.resolve("libraries.json");
+    }
+
+    private static @NotNull StringBuilder getNormalizedPath(String[] split) {
+        var pathBuilder = new StringBuilder();
+        for (int index = 0; index < split.length - 1; index++) {
+            String string = split[index];
+
+            // check if the string is the version
+            String[] slashSplit = string.split("/");
+            if (slashSplit.length == 1) {
+                pathBuilder.append(string);
+            } else {
+                // replace all . with /
+                pathBuilder.append(string.replace(".", "/"));
+            }
+
+            pathBuilder.append("/");
+        }
+
+        return pathBuilder;
+    }
 
     @TaskAction
     public void downloadLibraries() {
-        System.out.println("Downloading libraries for version " + getVersion().get());
-
-        Path versionPath = getOutputDir()
-                .orElse(getProject()
-                        .getLayout()
-                        .getBuildDirectory()
-                        .dir("minecraft")
-                        .get())
-                .get()
-                .getAsFile()
-                .toPath()
-                .resolve(getVersion().get());
-
-        Path versionJsonPath = versionPath.resolve("version.json");
+        System.out.println("Downloading libraries for version " + getMinecraftVersion() + "...");
 
         VersionPackage versionPackage = VersionPackage.fromPath(versionJsonPath);
         System.out.println("Version package path: " + versionJsonPath);
@@ -92,7 +108,7 @@ public abstract class DownloadLibrariesTask extends DefaultTask {
 
             StringBuilder pathBuilder = getNormalizedPath(split);
 
-            Path libraryPath = versionPath.resolve("libraries").resolve(pathBuilder.toString());
+            Path libraryPath = librariesPath.resolve(pathBuilder.toString());
             Path libraryFile = libraryPath.resolve(fileName);
             System.out.println("Library path: " + libraryFile);
 
@@ -131,9 +147,9 @@ public abstract class DownloadLibrariesTask extends DefaultTask {
                         librariesObject.addProperty(entry.getKey(), entry.getValue().toString()));
 
         try {
-            Files.createDirectories(versionPath);
+            Files.createDirectories(librariesJsonPath.getParent());
             Files.writeString(
-                    versionPath.resolve("libraries.json"),
+                    librariesJsonPath,
                     librariesObject.toString(),
                     StandardCharsets.UTF_8);
         } catch (IOException exception) {
@@ -141,23 +157,15 @@ public abstract class DownloadLibrariesTask extends DefaultTask {
         }
     }
 
-    private static @NotNull StringBuilder getNormalizedPath(String[] split) {
-        var pathBuilder = new StringBuilder();
-        for (int index = 0; index < split.length - 1; index++) {
-            String string = split[index];
+    public Path getVersionJsonPath() {
+        return versionJsonPath;
+    }
 
-            // check if the string is the version
-            String[] slashSplit = string.split("/");
-            if (slashSplit.length == 1) {
-                pathBuilder.append(string);
-            } else {
-                // replace all . with /
-                pathBuilder.append(string.replace(".", "/"));
-            }
+    public Path getLibrariesPath() {
+        return librariesPath;
+    }
 
-            pathBuilder.append("/");
-        }
-
-        return pathBuilder;
+    public Path getLibrariesJsonPath() {
+        return librariesJsonPath;
     }
 }

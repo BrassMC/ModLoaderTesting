@@ -1,10 +1,9 @@
 package dev.turtywurty.testgradleplugin.tasks;
 
 import dev.turtywurty.testgradleplugin.util.FileUtil;
-import org.gradle.api.DefaultTask;
-import org.gradle.api.file.DirectoryProperty;
-import org.gradle.api.provider.Property;
-import org.gradle.api.tasks.*;
+import org.gradle.api.tasks.InputFile;
+import org.gradle.api.tasks.Internal;
+import org.gradle.api.tasks.TaskAction;
 import org.gradle.work.DisableCachingByDefault;
 
 import java.io.IOException;
@@ -12,34 +11,26 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 
 @DisableCachingByDefault(because = "It's unnecessary")
-public abstract class ExtractServerTask extends DefaultTask {
-    @Input
-    public abstract Property<String> getVersion();
+public class ExtractServerTask extends DefaultTestGradleTask {
+    @InputFile
+    private final Path jarPath;
 
-    @InputDirectory
-    @Optional
-    public abstract DirectoryProperty getInputDir();
+    private final Path outputDir, tempOutputDir;
+
+    public ExtractServerTask() {
+        Path cacheDir = getCacheDir();
+        Path versionPath = cacheDir.resolve(getMinecraftVersion());
+
+        this.jarPath = versionPath.resolve("server.jar");
+        this.outputDir = versionPath.resolve("server");
+        this.tempOutputDir = versionPath.resolve("temp-server");
+    }
 
     @TaskAction
     public void extractJar() {
-        Path versionPath = getInputDir()
-                .getOrElse(getProject()
-                        .getLayout()
-                        .getBuildDirectory()
-                        .dir("minecraft")
-                        .get())
-                .getAsFile()
-                .toPath()
-                .resolve(getVersion().get());
-        if (Files.notExists(versionPath))
-            throw new IllegalStateException("Version directory does not exist!");
-
-        Path jarPath = versionPath.resolve("server.jar");
         if (Files.notExists(jarPath))
             throw new IllegalStateException("Server jar does not exist!");
 
-        // get or else use user home dir
-        Path outputDir = versionPath.resolve("server");
         if (Files.exists(outputDir)) {
             // delete output dir
             FileUtil.deleteDirectory(outputDir);
@@ -56,7 +47,6 @@ public abstract class ExtractServerTask extends DefaultTask {
 
         if (Files.exists(outputDir.resolve("META-INF/versions/%s/server-%s.jar"))) {
             // clear output dir
-            Path tempOutputDir = versionPath.resolve("temp-server");
             try {
                 Files.createDirectories(tempOutputDir);
             } catch (IOException exception) {
@@ -74,5 +64,9 @@ public abstract class ExtractServerTask extends DefaultTask {
         }
 
         System.out.println("Extracted server jar(s) in " + (System.nanoTime() - start) / 1_000_000_000 + " seconds!");
+    }
+
+    public Path getJarPath() {
+        return jarPath;
     }
 }

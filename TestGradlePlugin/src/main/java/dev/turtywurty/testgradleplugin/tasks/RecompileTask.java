@@ -1,9 +1,6 @@
 package dev.turtywurty.testgradleplugin.tasks;
 
 import dev.turtywurty.testgradleplugin.extensions.TestGradleExtension;
-import org.gradle.api.DefaultTask;
-import org.gradle.api.file.DirectoryProperty;
-import org.gradle.api.provider.Property;
 import org.gradle.api.tasks.*;
 
 import java.io.FileOutputStream;
@@ -15,66 +12,59 @@ import java.util.jar.JarOutputStream;
 import java.util.stream.Stream;
 
 @CacheableTask
-public abstract class RecompileTask extends DefaultTask {
-    @Input
-    public abstract Property<String> getVersion();
+public class RecompileTask extends DefaultTestGradleTask {
+    @InputDirectory
+    @Classpath
+    private final Path inputDir;
 
-    @Input
-    public abstract Property<TestGradleExtension.Side> getSide();
+    @OutputFile
+    private final Path outputJar;
 
-    @OutputDirectory
-    @Optional
-    public abstract DirectoryProperty getOutputDir();
+    public RecompileTask() {
+        Path cacheDir = getCacheDir();
+        Path versionPath = cacheDir.resolve(getMinecraftVersion());
 
-    @TaskAction
-    public void recompile() {
-        Path versionPath = getOutputDir()
-                .orElse(getProject()
-                        .getLayout()
-                        .getBuildDirectory()
-                        .dir("minecraft")
-                        .get())
-                .get()
-                .getAsFile()
-                .toPath()
-                .resolve(getVersion().get());
-
-        TestGradleExtension.Side side = getSide().get();
-        Path location = switch (side) {
+        TestGradleExtension.Side side = getSide();
+        this.inputDir = switch (side) {
             case CLIENT -> versionPath.resolve("client");
             case SERVER -> versionPath.resolve("server");
             case BOTH -> versionPath.resolve("joined");
         };
 
-        if (Files.notExists(location))
-            throw new IllegalStateException("The " + side.name().toLowerCase() + " has not been extracted yet!");
-
-        System.out.println("Recompiling " + side.name().toLowerCase() + " for version " + getVersion().get());
-
-        Path targetJar = versionPath.resolve("recomp_" + switch (side) {
+        this.outputJar = versionPath.resolve("recomp_" + switch (side) {
             case CLIENT -> "client";
             case SERVER -> "server";
             case BOTH -> "joined";
         } + ".jar");
+    }
+
+    @TaskAction
+    public void recompile() {
+        TestGradleExtension.Side side = getSide();
+        if (Files.notExists(inputDir))
+            throw new IllegalStateException("The " + side.name().toLowerCase() + " has not been extracted yet!");
+
+        System.out.println("Recompiling " + side.name().toLowerCase() + " for version " + getMinecraftVersion() + "...");
 
         try {
-            Files.deleteIfExists(targetJar);
-            Files.createDirectories(targetJar.getParent());
-            Files.createFile(targetJar);
+            Files.deleteIfExists(outputJar);
+            Files.createDirectories(outputJar.getParent());
+            Files.createFile(outputJar);
 
-            try (var fos = new FileOutputStream(targetJar.toFile()); var jos = new JarOutputStream(fos);
-                 Stream<Path> walk = Files.walk(location)) {
+            try (var fos = new FileOutputStream(outputJar.toFile());
+                 var jos = new JarOutputStream(fos);
+                 Stream<Path> walk = Files.walk(inputDir)) {
                 walk.filter(Files::isRegularFile)
                         .forEach(path -> {
                             try {
-                                var entry = new JarEntry(location.relativize(path).toString());
+                                var entry = new JarEntry(inputDir.relativize(path).toString());
                                 jos.putNextEntry(entry);
                                 jos.write(Files.readAllBytes(path));
                                 jos.closeEntry();
 
-                                System.out.println("Added " + entry.getName() + " to " + targetJar.getFileName());
+                                System.out.println("Added " + entry.getName() + " to " + outputJar.getFileName());
                             } catch (IOException exception) {
-                                throw new IllegalStateException("Failed to add " + path.getFileName() + " to " + targetJar.getFileName(), exception);
+                                throw new IllegalStateException("Failed to add " + path.getFileName() + " to " + outputJar.getFileName(), exception);
                             }
                         });
             }
@@ -82,10 +72,18 @@ public abstract class RecompileTask extends DefaultTask {
             throw new IllegalStateException("Failed to delete old jar!", exception);
         }
 
-        System.out.println("Successfully recompiled " + side.name().toLowerCase() + " for version " + getVersion().get());
+        System.out.println("Successfully recompiled " + side.name().toLowerCase() + " for version " + getMinecraftVersion() + "!");
 
         // add the recompiled jar to the classpath
-        getProject().getRepositories().flatDir(repo -> repo.dir(targetJar.getParent()));
-        getProject().getDependencies().add("implementation", getProject().files(targetJar));
+        getProject().getRepositories().flatDir(repo -> repo.dir(outputJar.getParent()));
+        getProject().getDependencies().add("implementation", getProject().files(outputJar));
+    }
+
+    public Path getInputDir() {
+        return inputDir;
+    }
+
+    public Path getOutputJar() {
+        return outputJar;
     }
 }

@@ -2,9 +2,6 @@ package dev.turtywurty.testgradleplugin.tasks;
 
 import dev.turtywurty.testgradleplugin.piston.version.Download;
 import dev.turtywurty.testgradleplugin.piston.version.VersionPackage;
-import org.gradle.api.DefaultTask;
-import org.gradle.api.file.DirectoryProperty;
-import org.gradle.api.provider.Property;
 import org.gradle.api.tasks.*;
 
 import java.io.IOException;
@@ -12,34 +9,28 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 
 @CacheableTask
-public abstract class DownloadServerMappingsTask extends DefaultTask {
-    @Input
-    public abstract Property<String> getVersion();
+public class DownloadServerMappingsTask extends DefaultTestGradleTask {
+    @InputFile
+    @Classpath
+    private final Path versionJsonPath;
 
-    @OutputDirectory
-    @Optional
-    public abstract DirectoryProperty getOutputDir();
+    @OutputFile
+    private final Path serverMappingsPath, serverMappingsHashPath;
+
+    public DownloadServerMappingsTask() {
+        Path cacheDir = getCacheDir();
+        Path versionPath = cacheDir.resolve(getMinecraftVersion());
+
+        this.versionJsonPath = versionPath.resolve("version.json");
+        this.serverMappingsPath = versionPath.resolve("server_mappings.txt");
+        this.serverMappingsHashPath = versionPath.resolve("server_mappings.txt.sha1");
+    }
 
     @TaskAction
     public void downloadServerMappings() {
-        Path versionPath = getOutputDir()
-                .orElse(getProject()
-                        .getLayout()
-                        .getBuildDirectory()
-                        .dir("minecraft")
-                        .get())
-                .get()
-                .getAsFile()
-                .toPath()
-                .resolve(getVersion().get());
-
-        Path versionJsonPath = versionPath.resolve("version.json");
-
         VersionPackage versionPackage = VersionPackage.fromPath(versionJsonPath);
         System.out.println("Version package path: " + versionJsonPath);
 
-        Path serverMappingsPath = versionPath.resolve("server_mappings.txt");
-        Path serverMappingsHashPath = versionPath.resolve("server_mappings.txt.sha1");
         // Check if the server mappings hash is already downloaded
         if (Files.exists(serverMappingsHashPath) && Files.exists(serverMappingsPath)) {
             String hash = null;
@@ -73,7 +64,7 @@ public abstract class DownloadServerMappingsTask extends DefaultTask {
             System.out.println("Server mappings hash: " + serverMappingsHash);
             Files.writeString(serverMappingsHashPath, serverMappingsHash);
 
-            Path mappingsPath = serverMappingsDownload.downloadToPath(versionPath);
+            Path mappingsPath = serverMappingsDownload.downloadToPath(serverMappingsHashPath.getParent(), "server_mappings.txt");
             System.out.println("Server mappings downloaded to: " + mappingsPath);
 
             Files.move(mappingsPath, serverMappingsPath);
@@ -82,5 +73,17 @@ public abstract class DownloadServerMappingsTask extends DefaultTask {
         } catch (IOException exception) {
             throw new IllegalStateException("Failed to download server mappings!", exception);
         }
+    }
+
+    public Path getServerMappingsPath() {
+        return serverMappingsPath;
+    }
+
+    public Path getServerMappingsHashPath() {
+        return serverMappingsHashPath;
+    }
+
+    public Path getVersionJsonPath() {
+        return versionJsonPath;
     }
 }

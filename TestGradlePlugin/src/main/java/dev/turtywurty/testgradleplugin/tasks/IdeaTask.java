@@ -1,13 +1,9 @@
 package dev.turtywurty.testgradleplugin.tasks;
 
 import dev.turtywurty.testgradleplugin.extensions.TestGradleExtension;
-import org.gradle.api.DefaultTask;
 import org.gradle.api.Project;
-import org.gradle.api.file.DirectoryProperty;
-import org.gradle.api.provider.Property;
-import org.gradle.api.tasks.Input;
-import org.gradle.api.tasks.Optional;
-import org.gradle.api.tasks.OutputDirectory;
+import org.gradle.api.tasks.CacheableTask;
+import org.gradle.api.tasks.OutputFile;
 import org.gradle.api.tasks.TaskAction;
 import org.gradle.tooling.model.idea.IdeaProject;
 
@@ -18,44 +14,38 @@ import java.nio.file.Path;
 import java.util.jar.JarEntry;
 import java.util.jar.JarOutputStream;
 
-public abstract class IdeaTask extends DefaultTask {
-    @Input
-    public abstract Property<String> getVersion();
+@CacheableTask
+public class IdeaTask extends DefaultTestGradleTask {
+    @OutputFile
+    private final Path outputJar;
 
-    @Input
-    public abstract Property<TestGradleExtension.Side> getSide();
+    public IdeaTask() {
+        Path cacheDir = getCacheDir();
+        Path versionPath = cacheDir.resolve(getMinecraftVersion());
 
-    @OutputDirectory
-    @Optional
-    public abstract DirectoryProperty getOutputDir();
-
-    @TaskAction
-    public void idea() {
-        System.out.println("Generating idea files for side " + getSide().get().name().toLowerCase());
-
-        Path versionPath = getOutputDir()
-                .orElse(getProject()
-                        .getLayout()
-                        .getBuildDirectory()
-                        .dir("minecraft")
-                        .get())
-                .get()
-                .getAsFile()
-                .toPath()
-                .resolve(getVersion().get());
-
-        TestGradleExtension.Side side = getSide().get();
-
-        Path location = versionPath.resolve("recomp_" + switch (side) {
+        this.outputJar = versionPath.resolve("recomp_" + switch (getSide()) {
             case CLIENT -> "client";
             case SERVER -> "server";
             case BOTH -> "joined";
         } + ".jar");
-        if (Files.notExists(location))
+    }
+
+    private static void addDependency(Project project, String name, String group, String version) {
+        // get idea module file
+        // add dependency to it
+
+        IdeaProject ideaProject = project.getExtensions().getByType(IdeaProject.class);
+    }
+
+    @TaskAction
+    public void idea() {
+        TestGradleExtension.Side side = getSide();
+        System.out.println("Generating idea files for side " + side.name().toLowerCase());
+
+        if (Files.notExists(outputJar))
             throw new IllegalStateException("The " + side.name().toLowerCase() + " has not been recompiled yet!");
 
         Path projectDir = getProject().getProjectDir().toPath();
-
         Path ideaDir = projectDir.resolve(".idea");
         if (Files.notExists(ideaDir)) {
             try {
@@ -74,7 +64,7 @@ public abstract class IdeaTask extends DefaultTask {
                                     <module fileurl="file://\\$MODULE_DIR\\$/build/resources/main" filepath="\\$MODULE_DIR\\$/build/resources/main" />
                                     <module fileurl="jar://${jarFileName}!/main" filepath="${jarFileName}" />
                                 </modules>
-                                """.replace("${jarFileName}", location.getFileName().toString()).getBytes());
+                                """.replace("${jarFileName}", outputJar.getFileName().toString()).getBytes());
                         jarOutputStream.closeEntry();
                     }
                 }
@@ -84,10 +74,7 @@ public abstract class IdeaTask extends DefaultTask {
         }
     }
 
-    private static void addDependency(Project project, String name, String group, String version) {
-        // get idea module file
-        // add dependency to it
-
-        IdeaProject ideaProject = project.getExtensions().getByType(IdeaProject.class);
+    public Path getOutputJar() {
+        return outputJar;
     }
 }

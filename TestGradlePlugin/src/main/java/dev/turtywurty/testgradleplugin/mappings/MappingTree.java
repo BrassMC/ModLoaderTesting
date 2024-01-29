@@ -109,6 +109,20 @@ public class MappingTree {
         }
     }
 
+    public String findPath(MappingNode currentParent) {
+        if (currentParent == null) {
+            return "";
+        }
+
+        var path = new StringBuilder(currentParent.getName());
+        while (currentParent.getParent() != null) {
+            currentParent = currentParent.getParent();
+            path.insert(0, currentParent.getName() + ".");
+        }
+
+        return path.toString();
+    }
+
     public static class MappingNode {
         protected final String name;
         protected final MappingNode parent;

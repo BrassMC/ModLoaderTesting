@@ -156,7 +156,8 @@ public class OfficialMappingsFile implements MappingFile {
                 if (line.endsWith(":")) {
                     line = line.replace(":", "").trim();
                     currentParent = parseClass(line, mappingTree);
-                    classMappings.put(((MappingTree.ClassNode) currentParent).getObfuscatedName(), currentParent.getName());
+                    String parentPath = mappingTree.findPath(currentParent);
+                    classMappings.put(((MappingTree.ClassNode) currentParent).getObfuscatedName(), parentPath);
                 } else if (currentParent instanceof MappingTree.ClassNode classParent && line.contains("->")) {
                     MappingTree.ObfuscatedNode node = parseMethodOrField(classParent, line);
                     currentParent.addChild(node);

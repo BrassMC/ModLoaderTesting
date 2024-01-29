@@ -7,8 +7,6 @@ import dev.turtywurty.testgradleplugin.TestGradlePlugin;
 import dev.turtywurty.testgradleplugin.asset.AssetIndexHash;
 import dev.turtywurty.testgradleplugin.asset.AssetObject;
 import dev.turtywurty.testgradleplugin.piston.version.VersionPackage;
-import org.gradle.api.DefaultTask;
-import org.gradle.api.file.DirectoryProperty;
 import org.gradle.api.provider.Property;
 import org.gradle.api.tasks.Optional;
 import org.gradle.api.tasks.*;
@@ -25,18 +23,23 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 @CacheableTask
-public abstract class DownloadAssetsTask extends DefaultTask {
+public abstract class DownloadAssetsTask extends DefaultTestGradleTask {
+    @InputFile
+    @Classpath
+    private final Path versionJsonPath;
+
+    @OutputDirectory
+    private final Path assetsPath;
+
     public DownloadAssetsTask() {
         getAssetsUrl().convention("https://resources.download.minecraft.net/");
         getConcurrentConnections().convention(8);
+
+        Path cacheDir = getCacheDir();
+        Path versionPath = cacheDir.resolve(getMinecraftVersion());
+        this.versionJsonPath = versionPath.resolve("version.json");
+        this.assetsPath = versionPath.resolve("assets");
     }
-
-    @Input
-    public abstract Property<String> getVersion();
-
-    @OutputDirectory
-    @Optional
-    public abstract DirectoryProperty getOutputDir();
 
     @Input
     @Optional
@@ -49,19 +52,6 @@ public abstract class DownloadAssetsTask extends DefaultTask {
     @TaskAction
     public void downloadAssets() {
         System.out.println("Downloading assets!");
-
-        Path versionPath = getOutputDir()
-                .orElse(getProject()
-                        .getLayout()
-                        .getBuildDirectory()
-                        .dir("minecraft")
-                        .get())
-                .get()
-                .getAsFile()
-                .toPath()
-                .resolve(getVersion().get());
-
-        Path versionJsonPath = versionPath.resolve("version.json");
 
         VersionPackage versionPackage = VersionPackage.fromPath(versionJsonPath);
         System.out.println("Version package path: " + versionJsonPath);
@@ -80,7 +70,6 @@ public abstract class DownloadAssetsTask extends DefaultTask {
 
         System.out.println("Asset index hash: " + assetIndexHash);
 
-        Path assetsPath = versionPath.resolve("assets");
         Path objectsPath = assetsPath.resolve("objects");
         Path indexesPath = assetsPath.resolve("indexes/%s.json".formatted(versionPackage.assetIndex().id()));
         Path minecraftAssets = OperatingSystem.getMinecraftDir().resolve("assets/objects");
@@ -172,5 +161,13 @@ public abstract class DownloadAssetsTask extends DefaultTask {
         } catch (IOException exception) {
             throw new RuntimeException("Failed to create assets directory!", exception);
         }
+    }
+
+    public Path getVersionJsonPath() {
+        return versionJsonPath;
+    }
+
+    public Path getAssetsPath() {
+        return assetsPath;
     }
 }
