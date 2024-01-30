@@ -15,7 +15,7 @@ public abstract class TestGradleExtension {
             case "client" -> Side.CLIENT;
             case "server" -> Side.SERVER;
             default -> Side.BOTH;
-        });
+        }).orElse(Side.CLIENT);
     }
 
     public enum Side {

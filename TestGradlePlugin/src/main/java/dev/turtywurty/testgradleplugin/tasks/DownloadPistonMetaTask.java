@@ -27,10 +27,8 @@ public class DownloadPistonMetaTask extends DefaultTestGradleTask {
         System.out.println("Downloading Piston Meta...");
         PistonMeta.download(this.pistonFile);
 
-        System.out.println("Loading Piston Meta...");
         var meta = new PistonMeta(this.pistonFile);
 
-        System.out.println("Finding Piston Meta Version...");
         PistonMetaVersion metaVersion = meta.findVersion(version);
 
         System.out.println("Downloading Piston Meta Version...");

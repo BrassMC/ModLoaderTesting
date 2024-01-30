@@ -25,11 +25,11 @@ public class RecompileTask extends DefaultTestGradleTask {
         Path versionPath = cacheDir.resolve(getMinecraftVersion());
 
         TestGradleExtension.Side side = getSide();
-        this.inputDir = switch (side) {
-            case CLIENT -> versionPath.resolve("client");
-            case SERVER -> versionPath.resolve("server");
-            case BOTH -> versionPath.resolve("joined");
-        };
+        this.inputDir = versionPath.resolve("remapped_" + switch (side) {
+            case CLIENT -> "client";
+            case SERVER -> "server";
+            case BOTH -> "joined";
+        });
 
         this.outputJar = versionPath.resolve("recomp_" + switch (side) {
             case CLIENT -> "client";
@@ -54,19 +54,18 @@ public class RecompileTask extends DefaultTestGradleTask {
             try (var fos = new FileOutputStream(outputJar.toFile());
                  var jos = new JarOutputStream(fos);
                  Stream<Path> walk = Files.walk(inputDir)) {
-                walk.filter(Files::isRegularFile)
-                        .forEach(path -> {
-                            try {
-                                var entry = new JarEntry(inputDir.relativize(path).toString());
-                                jos.putNextEntry(entry);
-                                jos.write(Files.readAllBytes(path));
-                                jos.closeEntry();
+                walk.filter(Files::isRegularFile).forEach(path -> {
+                    try {
+                        var entry = new JarEntry(inputDir.relativize(path).toString());
+                        jos.putNextEntry(entry);
+                        jos.write(Files.readAllBytes(path));
+                        jos.closeEntry();
 
-                                System.out.println("Added " + entry.getName() + " to " + outputJar.getFileName());
-                            } catch (IOException exception) {
-                                throw new IllegalStateException("Failed to add " + path.getFileName() + " to " + outputJar.getFileName(), exception);
-                            }
-                        });
+                        //System.out.println("Added " + entry.getName() + " to " + outputJar.getFileName());
+                    } catch (IOException exception) {
+                        throw new IllegalStateException("Failed to add " + path.getFileName() + " to " + outputJar.getFileName(), exception);
+                    }
+                });
             }
         } catch (IOException exception) {
             throw new IllegalStateException("Failed to delete old jar!", exception);

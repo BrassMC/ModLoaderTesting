@@ -42,6 +42,11 @@ public interface TestGradleTask extends Task {
     }
 
     @Internal
+    default boolean isServer() {
+        return getSide() == TestGradleExtension.Side.SERVER || getSide() == TestGradleExtension.Side.BOTH;
+    }
+
+    @Internal
     default Path getCacheDir() {
         return getProject().getGradle().getGradleUserHomeDir().toPath().resolve("caches/testGradle");
     }

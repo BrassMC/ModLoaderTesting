@@ -5,10 +5,10 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import dev.turtywurty.testgradleplugin.TestGradlePlugin;
 
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Locale;
-import java.util.Optional;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.*;
 
 public record Library(Download artifact, String name, Optional<List<DownloadRule>> rules) {
     public static List<Library> fromJsonArray(JsonArray json) {
@@ -48,6 +48,16 @@ public record Library(Download artifact, String name, Optional<List<DownloadRule
         }
 
         return new Library(artifact, name, rules);
+    }
+
+    public static void readLibraries(Map<String, Path> libraryJars, Path librariesJsonPath) throws IOException {
+        String librariesJson = Files.readString(librariesJsonPath);
+        JsonObject librariesObject = TestGradlePlugin.GSON.fromJson(librariesJson, JsonObject.class);
+        for (Map.Entry<String, JsonElement> entry : librariesObject.entrySet()) {
+            String name = entry.getKey();
+            String path = entry.getValue().getAsString();
+            libraryJars.put(name, Path.of(path));
+        }
     }
 
     public record DownloadRule(Action action, OperatingSystem os) {

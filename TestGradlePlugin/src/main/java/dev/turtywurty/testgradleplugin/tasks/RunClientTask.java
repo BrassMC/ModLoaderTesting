@@ -1,8 +1,6 @@
 package dev.turtywurty.testgradleplugin.tasks;
 
-import com.google.gson.JsonElement;
-import com.google.gson.JsonObject;
-import dev.turtywurty.testgradleplugin.TestGradlePlugin;
+import dev.turtywurty.testgradleplugin.piston.version.Library;
 import dev.turtywurty.testgradleplugin.piston.version.VersionPackage;
 import org.gradle.api.tasks.*;
 
@@ -33,20 +31,10 @@ public class RunClientTask extends DefaultTestGradleTask {
         this.versionJsonPath = versionPath.resolve("version.json");
         this.librariesJsonPath = versionPath.resolve("libraries.json");
         this.clientJarPath = versionPath.resolve("client.jar");
+        this.assetsDir = versionPath.resolve("assets");
 
         Path projectDir = getProject().getProjectDir().toPath();
-        this.assetsDir = projectDir.resolve("assets");
         this.runDir = projectDir.resolve("run");
-    }
-
-    public static void readLibraries(Map<String, Path> libraryJars, Path librariesJsonPath) throws IOException {
-        String librariesJson = Files.readString(librariesJsonPath);
-        JsonObject librariesObject = TestGradlePlugin.GSON.fromJson(librariesJson, JsonObject.class);
-        for (Map.Entry<String, JsonElement> entry : librariesObject.entrySet()) {
-            String name = entry.getKey();
-            String path = entry.getValue().getAsString();
-            libraryJars.put(name, Path.of(path));
-        }
     }
 
     @TaskAction
@@ -67,7 +55,7 @@ public class RunClientTask extends DefaultTestGradleTask {
 
         Map<String, Path> libraryJars = new HashMap<>();
         try {
-            readLibraries(libraryJars, librariesJsonPath);
+            Library.readLibraries(libraryJars, librariesJsonPath);
         } catch (IOException exception) {
             throw new RuntimeException("Failed to read libraries json!", exception);
         }
