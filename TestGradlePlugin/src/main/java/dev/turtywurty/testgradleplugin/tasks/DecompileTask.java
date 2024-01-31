@@ -24,7 +24,7 @@ public class  DecompileTask extends DefaultTestGradleTask {
         Path cacheDir = getCacheDir();
         Path versionPath = cacheDir.resolve(getMinecraftVersion());
 
-        this.inputJar = versionPath.resolve("recomp_" + switch (getSide()) {
+        this.inputJar = versionPath.resolve("repackaged_" + switch (getSide()) {
             case CLIENT -> "client";
             case SERVER -> "server";
             case BOTH -> "joined";

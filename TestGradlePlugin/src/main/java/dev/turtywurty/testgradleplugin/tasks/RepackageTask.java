@@ -12,7 +12,7 @@ import java.util.jar.JarOutputStream;
 import java.util.stream.Stream;
 
 @CacheableTask
-public class RecompileTask extends DefaultTestGradleTask {
+public class RepackageTask extends DefaultTestGradleTask {
     @InputDirectory
     @Classpath
     private final Path inputDir;
@@ -20,7 +20,7 @@ public class RecompileTask extends DefaultTestGradleTask {
     @OutputFile
     private final Path outputJar;
 
-    public RecompileTask() {
+    public RepackageTask() {
         Path cacheDir = getCacheDir();
         Path versionPath = cacheDir.resolve(getMinecraftVersion());
 
@@ -31,7 +31,7 @@ public class RecompileTask extends DefaultTestGradleTask {
             case BOTH -> "joined";
         });
 
-        this.outputJar = versionPath.resolve("recomp_" + switch (side) {
+        this.outputJar = versionPath.resolve("repackaged_" + switch (side) {
             case CLIENT -> "client";
             case SERVER -> "server";
             case BOTH -> "joined";
@@ -39,12 +39,12 @@ public class RecompileTask extends DefaultTestGradleTask {
     }
 
     @TaskAction
-    public void recompile() {
+    public void repackage() {
         TestGradleExtension.Side side = getSide();
         if (Files.notExists(inputDir))
             throw new IllegalStateException("The " + side.name().toLowerCase() + " has not been extracted yet!");
 
-        System.out.println("Recompiling " + side.name().toLowerCase() + " for version " + getMinecraftVersion() + "...");
+        System.out.println("Repackaging " + side.name().toLowerCase() + " for version " + getMinecraftVersion() + "...");
 
         try {
             Files.deleteIfExists(outputJar);
@@ -71,7 +71,7 @@ public class RecompileTask extends DefaultTestGradleTask {
             throw new IllegalStateException("Failed to delete old jar!", exception);
         }
 
-        System.out.println("Successfully recompiled " + side.name().toLowerCase() + " for version " + getMinecraftVersion() + "!");
+        System.out.println("Successfully repackaged " + side.name().toLowerCase() + " for version " + getMinecraftVersion() + "!");
 
         // add the recompiled jar to the classpath
         getProject().getRepositories().flatDir(repo -> repo.dir(outputJar.getParent()));

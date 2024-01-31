@@ -86,10 +86,10 @@ public class TestGradlePlugin implements Plugin<Project> {
         mergeTask.setDescription("Merges the Minecraft client and server into one directory.");
         mergeTask.dependsOn(remapClassesTask);
 
-        RecompileTask recompileTask = tasks.create("recompile", RecompileTask.class);
-        recompileTask.setGroup("minecraft");
-        recompileTask.setDescription("Recompiles the Minecraft client and server into a jar.");
-        recompileTask.dependsOn(sideProvider.map(side -> switch (side) {
+        RepackageTask repackageTask = tasks.create("repackage", RepackageTask.class);
+        repackageTask.setGroup("minecraft");
+        repackageTask.setDescription("Repackages the Minecraft client and server into a jar.");
+        repackageTask.dependsOn(sideProvider.map(side -> switch (side) {
             case CLIENT, SERVER -> new Object[]{remapClassesTask};
             case BOTH -> new Object[]{remapClassesTask, mergeTask};
         }).getOrElse(new Object[0]));
@@ -97,7 +97,7 @@ public class TestGradlePlugin implements Plugin<Project> {
         DecompileTask decompileTask = tasks.create("decompile", DecompileTask.class);
         decompileTask.setGroup("minecraft");
         decompileTask.setDescription("Decompiles the Minecraft client and server jars.");
-        decompileTask.dependsOn(recompileTask);
+        decompileTask.dependsOn(repackageTask);
 
         SourcesStatsTask sourcesStatsTask = tasks.create("sourcesStats", SourcesStatsTask.class);
         sourcesStatsTask.setGroup("minecraft");
