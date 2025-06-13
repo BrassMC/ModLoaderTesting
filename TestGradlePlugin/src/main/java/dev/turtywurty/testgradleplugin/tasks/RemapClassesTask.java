@@ -1,25 +1,21 @@
 package dev.turtywurty.testgradleplugin.tasks;
 
 import dev.turtywurty.testgradleplugin.extensions.TestGradleExtension;
-import dev.turtywurty.testgradleplugin.mappings.OfficialMappingsFile;
+import dev.turtywurty.testgradleplugin.mappings.*;
 import dev.turtywurty.testgradleplugin.util.FileUtil;
 import org.gradle.api.tasks.InputDirectory;
 import org.gradle.api.tasks.InputFiles;
 import org.gradle.api.tasks.TaskAction;
-import org.objectweb.asm.ClassReader;
-import org.objectweb.asm.ClassWriter;
-import org.objectweb.asm.commons.ClassRemapper;
-import org.objectweb.asm.commons.Remapper;
+import org.objectweb.asm.commons.SimpleRemapper;
 
-import java.io.BufferedInputStream;
-import java.io.BufferedOutputStream;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ForkJoinPool;
+import java.util.concurrent.RecursiveAction;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 public class RemapClassesTask extends DefaultTestGradleTask {
@@ -39,96 +35,125 @@ public class RemapClassesTask extends DefaultTestGradleTask {
         this.remappedClientDir = versionPath.resolve("remapped_client");
     }
 
-    private static void remap(Path dir, Path remappedDir, OfficialMappingsFile mappings) {
-        try (var forkJoinPool = new ForkJoinPool(); Stream<Path> paths = Files.list(dir)) {
-            Path[] pathsArray = paths.toArray(Path[]::new);
-            Map<String, String> classMappings = new HashMap<>();
+    private static void remap(Path inputDir, Path outputDir, Path mappingsFile) {
+        if (Files.notExists(inputDir) || !Files.isDirectory(inputDir))
+            throw new RuntimeException("Input directory does not exist or is not a directory: " + inputDir);
 
-            long loadStart = System.currentTimeMillis();
-            int loaded = 0;
-            for (Path file : pathsArray) {
-                if (file.getFileName().toString().endsWith(".class")) {
-                    String className = file.getFileName().toString().replace(".class", "");
-                    String mappedName = mappings.getClassMappings().get(className);
-                    if (mappedName == null) {
-                        System.out.printf("Failed to find mapping for %s%n", className);
-                        continue;
-                    }
+        if (Files.notExists(outputDir)) {
+            try {
+                Files.createDirectories(outputDir);
+            } catch (IOException e) {
+                throw new RuntimeException("Failed to create output directory: " + outputDir, e);
+            }
+        }
 
-                    classMappings.put(className, mappedName);
-                    loaded++;
-                } else {
-                    Path relativized = remappedDir.resolve(dir.relativize(file));
-                    if(Files.isDirectory(file))
-                        Files.createDirectories(relativized);
-                    else {
-                        Files.createDirectories(remappedDir.resolve(dir.relativize(file.getParent())));
-                        Files.copy(file, relativized);
-                    }
+        if (!Files.isDirectory(outputDir))
+            throw new RuntimeException("Output directory is not a directory: " + outputDir);
+
+        try {
+            List<ClassMapping> mappings = OfficialMappingsFile.parse(mappingsFile);
+            if (mappings.isEmpty()) {
+                throw new RuntimeException("No mappings found in the mappings file: " + mappingsFile);
+            }
+
+            Map<String, String> originalToObfuscated = mappings.stream()
+                    .collect(Collectors.toMap(
+                            classMapping -> classMapping.getOriginalName().replace(".", "/"),
+                            ClassMapping::getObfuscatedName));
+            var nameRemapper = new SimpleRemapper(originalToObfuscated);
+            for (ClassMapping classMapping : mappings) {
+                for (MethodMapping methodMapping : classMapping.getMethods()) {
+                    String asmDesc = toAsmMethodDescriptor(
+                            methodMapping.getDescriptor(), methodMapping.getReturnType());
+
+                    String obfuscatedDesc = nameRemapper.mapMethodDesc(asmDesc);
+                    methodMapping.setObfuscatedDescriptor(obfuscatedDesc);
+                }
+
+                for (FieldMapping fieldMapping : classMapping.getFields()) {
+                    String obfuscatedDesc = nameRemapper.map(fieldMapping.getDescriptor());
+                    fieldMapping.setObfuscatedDescriptor(obfuscatedDesc);
                 }
             }
 
-            System.out.printf("Loaded %d classes in %ds!%n", loaded, (System.currentTimeMillis() - loadStart) / 1000);
-
-            var remapper = new ClassReferenceRemapper(classMappings);
-
-            long remapStart = System.currentTimeMillis();
-            int remapped = 0;
-            for (Path path : pathsArray) {
-                if (!path.getFileName().toString().endsWith(".class"))
-                    continue;
-
-                // changing E:\gradle\cache\testGradle\client\a.class to E:\gradle\cache\testGradle\remapped_client\com\mojang\math\Axis.class
-                Path newPath = remappedDir.resolve(dir.relativize(path));
-                forkJoinPool.submit(() -> remapClass(path, newPath, classMappings, remapper)).get();
-                remapped++;
+            try (var pool = new ForkJoinPool()) {
+                pool.submit(new DirectoryRemapTask(inputDir, outputDir, mappings)).join();
             }
-
-            System.out.printf("Remapped %d classes in %ds!%n", remapped, (System.currentTimeMillis() - remapStart) / 1000);
         } catch (IOException exception) {
-            throw new IllegalStateException("Failed to list files!", exception);
-        } catch (ExecutionException exception) {
-            throw new IllegalStateException("Failed to remap class!", exception.getCause());
-        } catch (InterruptedException exception) {
-            throw new IllegalStateException("Got interrupted!", exception);
+            throw new RuntimeException("Failed to parse mappings file: " + mappingsFile, exception);
         }
     }
 
-    private static void remapClass(Path path, Path newPath, Map<String, String> classMappings, Remapper remapper) {
-        String className = path.getFileName().toString().replace(".class", "");
-        String mappedName = classMappings.get(className);
-        Path mappedPackagePath = newPath.getParent()
-                .resolve(mappedName.replace(".", "/") + ".class");
-
-        classMappings.put(className, mappedName);
-
-        // System.out.printf("Remapping %s to %s%n", className, mappedName);
-        try {
-            Files.createDirectories(mappedPackagePath.getParent());
-            Files.move(path, mappedPackagePath);
-        } catch (IOException exception) {
-            throw new IllegalStateException("Failed to move file!", exception);
-        }
-
-        try (var fileInputStream = new BufferedInputStream(Files.newInputStream(mappedPackagePath))) {
-            var newBytes = writeReferences(fileInputStream, remapper);
-
-            try (var fileOutputStream = new BufferedOutputStream(Files.newOutputStream(mappedPackagePath))) {
-                fileOutputStream.write(newBytes);
+    private static String toAsmMethodDescriptor(String humanParams, String humanReturn) {
+        String params = humanParams.substring(1, humanParams.length() - 1).trim();
+        StringBuilder sb = new StringBuilder("(");
+        if (!params.isEmpty()) {
+            for (String p : params.split(",")) {
+                sb.append(toAsmTypeDescriptor(p.trim()));
             }
-        } catch (IOException exception) {
-            throw new IllegalStateException("Failed to read file!", exception);
         }
+        sb.append(")");
+        sb.append(toAsmTypeDescriptor(humanReturn));
+        return sb.toString();
     }
 
-    private static byte[] writeReferences(BufferedInputStream fileInputStream, Remapper remapper) throws IOException {
-        var classReader = new ClassReader(fileInputStream);
-        var classWriter = new ClassWriter(ClassWriter.COMPUTE_MAXS);
+    private static String toAsmTypeDescriptor(String human) {
+        switch (human) {
+            case "byte":
+                return "B";
+            case "char":
+                return "C";
+            case "double":
+                return "D";
+            case "float":
+                return "F";
+            case "int":
+                return "I";
+            case "long":
+                return "J";
+            case "short":
+                return "S";
+            case "boolean":
+                return "Z";
+            case "void":
+                return "V";
+        }
 
-        var classRemapper = new ClassRemapper(classWriter, remapper);
-        classReader.accept(classRemapper, 0);
+        // handle arrays
+        if (human.endsWith("[]")) {
+            return "[" + toAsmTypeDescriptor(human.substring(0, human.length() - 2));
+        }
+        // object
+        return "L" + human.replace('.', '/') + ";";
+    }
 
-        return classWriter.toByteArray();
+    private static class DirectoryRemapTask extends RecursiveAction {
+        private final Path inputDir;
+        private final Path outputDir;
+        private final List<ClassMapping> mappings;
+
+        public DirectoryRemapTask(Path inputDir, Path outputDir, List<ClassMapping> mappings) {
+            this.inputDir = inputDir;
+            this.outputDir = outputDir;
+            this.mappings = mappings;
+        }
+
+        @Override
+        protected void compute() {
+            try (Stream<Path> paths = Files.walk(inputDir)) {
+                paths.forEach(filePath -> {
+                    if (Files.isRegularFile(filePath) && filePath.toString().endsWith(".class")) {
+                        try {
+                            RemapperTool.remapClass(filePath, outputDir, mappings);
+                        } catch (Exception e) {
+                            throw new RuntimeException("Failed to remap class: " + filePath, e);
+                        }
+                    }
+                });
+            } catch (IOException exception) {
+                throw new RuntimeException("Failed to walk input directory: " + inputDir, exception);
+            }
+        }
     }
 
     @TaskAction
@@ -146,24 +171,10 @@ public class RemapClassesTask extends DefaultTestGradleTask {
             if (Files.exists(remappedClientDir))
                 FileUtil.deleteDirectory(remappedClientDir);
 
-            var clientMappings = new OfficialMappingsFile(clientMappingsPath);
-            remap(clientDir, remappedClientDir, clientMappings);
+            remap(clientDir, remappedClientDir, clientMappingsPath);
         }
 
-        // TODO: Figure out how to have optional directories and then I can uncomment this
-//        if (side == TestGradleExtension.Side.SERVER || side == TestGradleExtension.Side.BOTH) {
-//            if (Files.notExists(serverMappingsPath))
-//                throw new RuntimeException("server_mappings.txt is missing, please run the downloadServerMappings task!");
-//
-//            if (Files.notExists(serverDir))
-//                throw new RuntimeException("server is missing, please run the extractServer task!");
-//
-//            if (Files.exists(remappedServerDir))
-//                FileUtil.deleteDirectory(remappedServerDir);
-//
-//            var serverMappings = new OfficialMappingsFile(serverMappingsPath);
-//            remap(serverDir, remappedServerDir, serverMappings);
-//        }
+        // TODO: Figure out how to have optional directories then we can implement server remapping
     }
 
     public Path getClientMappingsPath() {
@@ -172,19 +183,5 @@ public class RemapClassesTask extends DefaultTestGradleTask {
 
     public Path getClientDir() {
         return clientDir;
-    }
-
-    private static class ClassReferenceRemapper extends Remapper {
-        private final Map<String, String> classMappings;
-
-        public ClassReferenceRemapper(Map<String, String> classMappings) {
-            this.classMappings = classMappings;
-        }
-
-        @Override
-        public String map(String internalName) {
-            String updatedName = classMappings.getOrDefault(internalName, internalName);
-            return updatedName.equals(internalName) ? super.map(internalName) : updatedName.replace(".", "/");
-        }
     }
 }

@@ -6,6 +6,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Comparator;
+import java.util.function.BiConsumer;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 
@@ -87,6 +88,23 @@ public class FileUtil {
             return false;
         } catch (IOException exception) {
             throw new IllegalStateException("Failed to check if file '%s' is binary!".formatted(path), exception);
+        }
+    }
+
+    public static void walkDirectory(Path inputDir, BiConsumer<Path, byte[]> consumer) throws IllegalStateException {
+        try (var paths = Files.walk(inputDir)) {
+            paths.forEach(path -> {
+                if (Files.isRegularFile(path)) {
+                    try {
+                        byte[] bytes = Files.readAllBytes(path);
+                        consumer.accept(path, bytes);
+                    } catch (IOException exception) {
+                        throw new IllegalStateException("Failed to read file: " + path, exception);
+                    }
+                }
+            });
+        } catch (IOException exception) {
+            throw new IllegalStateException("Failed to walk directory: " + inputDir, exception);
         }
     }
 }

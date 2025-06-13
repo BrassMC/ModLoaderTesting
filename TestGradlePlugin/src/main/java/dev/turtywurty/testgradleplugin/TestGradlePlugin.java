@@ -19,7 +19,7 @@ public class TestGradlePlugin implements Plugin<Project> {
         target.getPlugins().apply("java");
 
         final TestGradleExtension extension = target.getExtensions().create("testGradle", TestGradleExtension.class);
-        final Property<String> minecraftVersion = extension.getMinecraftVersion().convention("1.20.4");
+        final Property<String> minecraftVersion = extension.getMinecraftVersion().convention("1.21.5");
         final Provider<TestGradleExtension.Side> sideProvider = extension.getSideEnum();
 
         System.out.println("Minecraft Version: " + minecraftVersion.get());
@@ -97,7 +97,7 @@ public class TestGradlePlugin implements Plugin<Project> {
         DecompileTask decompileTask = tasks.create("decompile", DecompileTask.class);
         decompileTask.setGroup("minecraft");
         decompileTask.setDescription("Decompiles the Minecraft client and server jars.");
-        decompileTask.dependsOn(repackageTask);
+        decompileTask.dependsOn(repackageTask, downloadLibrariesTask);
 
         SourcesStatsTask sourcesStatsTask = tasks.create("sourcesStats", SourcesStatsTask.class);
         sourcesStatsTask.setGroup("minecraft");

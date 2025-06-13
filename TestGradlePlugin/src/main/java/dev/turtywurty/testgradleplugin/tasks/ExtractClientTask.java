@@ -11,6 +11,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
+// TODO: Cache because this is a large task, but only if the client jar is not changed
 @DisableCachingByDefault(because = "It's unnecessary")
 public class ExtractClientTask extends DefaultTestGradleTask {
     @InputFile

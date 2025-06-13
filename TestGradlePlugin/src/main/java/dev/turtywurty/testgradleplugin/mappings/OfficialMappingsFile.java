@@ -1,187 +1,101 @@
 package dev.turtywurty.testgradleplugin.mappings;
 
+import java.io.BufferedReader;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
-public class OfficialMappingsFile implements MappingFile {
-    private final Map<String, String> classMappings = new HashMap<>();
-    private final Map<String, String> methodMappings = new HashMap<>();
-    private final Map<String, String> fieldMappings = new HashMap<>();
-    private final MappingTree mappingTree;
+public class OfficialMappingsFile {
+    private static final Map<Path, CacheEntry> CACHE = new ConcurrentHashMap<>();
 
-    public OfficialMappingsFile(Path path) {
-        this.mappingTree = parseMappings(path);
+    private record CacheEntry(List<ClassMapping> classes, long lastModified) {
     }
 
-    private static MappingTree.MappingNode parseClass(String line, MappingTree mappingTree) {
-        String[] parts = line.split(" -> ");
-        String classPath = parts[0];
-        String obfuscatedName = parts[1];
-
-        String[] packageSplit = classPath.split("\\.");
-        List<String> packages = new ArrayList<>(Arrays.asList(packageSplit).subList(0, packageSplit.length - 1));
-
-        MappingTree.MappingNode previousPackage = null;
-        for (String aPackage : packages) {
-            MappingTree.MappingNode node = mappingTree.findNode(
-                    previousPackage != null ? previousPackage.getChildren().values() : mappingTree.getRootNodes(),
-                    mappingNode -> mappingNode.getName().equals(aPackage) && !(mappingNode instanceof MappingTree.ObfuscatedNode));
-
-            if (node == null) {
-                node = new MappingTree.MappingNode(aPackage, previousPackage);
-                if (previousPackage == null) {
-                    mappingTree.addRootNode(node);
-                } else {
-                    previousPackage.addChild(node);
-                }
-            }
-
-            previousPackage = node;
+    /**
+     * Parses the given mappings file and returns a list of ClassMapping instances.
+     *
+     * @param file the client mappings file
+     * @return list of class mappings
+     * @throws IOException if reading the file fails
+     */
+    public static List<ClassMapping> parse(Path file) throws IOException {
+        CacheEntry cached = CACHE.get(file);
+        if (cached != null && Files.exists(file) && Files.getLastModifiedTime(file).toMillis() == cached.lastModified) {
+            return cached.classes;
         }
 
-        String className = packageSplit[packageSplit.length - 1];
-        var classNode = new MappingTree.ClassNode(className, obfuscatedName, previousPackage);
-        if (previousPackage == null) {
-            mappingTree.addRootNode(classNode);
-        } else {
-            previousPackage.addChild(classNode);
-        }
-
-        return classNode;
-    }
-
-    private static MappingTree.ObfuscatedNode parseMethodOrField(MappingTree.ClassNode parent, String line) {
-        String[] split = line.split(" -> ");
-        String signature = split[0].trim();
-        String obfuscatedName = split[1].trim();
-
-        // determine if method or field
-        String[] parts = signature.split(" ");
-        if (!signature.contains("(")) {
-            // field
-            String returnType = parts[0];
-            String name = parts[1];
-
-            return new MappingTree.FieldNode(name, obfuscatedName, returnType, parent);
-        } else {
-            // method
-            String[] infoSplit = parts[0].split(":");
-
-            String returnType = infoSplit[0];
-            int fromLine = -1;
-            int toLine = -1;
-            if (infoSplit.length >= 3) {
-                try {
-                    fromLine = Integer.parseInt(infoSplit[0]);
-                    toLine = Integer.parseInt(infoSplit[1]);
-                } catch (NumberFormatException exception) {
-                    throw new IllegalArgumentException("Failed to parse line numbers!", exception);
-                }
-
-                returnType = infoSplit[2];
-            }
-
-            int startIndex = parts[1].indexOf("(");
-            int endIndex = parts[1].lastIndexOf(")");
-            String name = parts[1].substring(0, startIndex);
-            List<String> params = Arrays.stream(parts[1].substring(startIndex + 1, endIndex).split(",")) // split params
-                    .map(String::trim) // trim params
-                    .toList();
-
-            return new MappingTree.MethodNode(name, obfuscatedName, fromLine, toLine, returnType, params, parent);
-        }
-    }
-
-    public Map<String, String> getClassMappings() {
-        return classMappings;
-    }
-
-    public Map<String, String> getMethodMappings() {
-        return methodMappings;
-    }
-
-    public Map<String, String> getFieldMappings() {
-        return fieldMappings;
-    }
-
-    @Override
-    public String findPath(String name, MappingFile.NodeType nodeType) {
-        MappingTree.MappingNode node = this.mappingTree.findNodeFull(mappingNode -> switch (nodeType) {
-            case PACKAGE -> nodeType.getPredicate().test(mappingNode) && mappingNode.getName().equals(name);
-            case CLASS, METHOD, FIELD -> nodeType.getPredicate().test(mappingNode) &&
-                    ((MappingTree.ObfuscatedNode) mappingNode).getObfuscatedName().equals(name);
-            default -> false;
-        });
-
-        if (node == null)
-            return null;
-
-        List<String> packages = new ArrayList<>();
-        while (node != null) {
-            packages.add(node.getName());
-            node = node.getParent();
-        }
-
-        var builder = new StringBuilder();
-        for (int i = packages.size() - 1; i >= 0; i--) {
-            builder.append(packages.get(i));
-            if (i != 0)
-                builder.append(".");
-        }
-
-        return builder.toString();
-    }
-
-    @Override
-    public MappingTree parseMappings(Path path) {
-        if (Files.notExists(path)) {
-            throw new IllegalArgumentException("File does not exist!");
-        }
-
-        var mappingTree = new MappingTree();
-
-        try (var linesStream = Files.lines(path)) {
-            List<String> lines = linesStream.toList();
-            MappingTree.MappingNode currentParent = null;
-
-            long startRead = System.nanoTime();
-            final int totalLines = lines.size();
-            for (String line : lines) {
-                // Empty lines and comments
-                if (line.isBlank() || line.startsWith("#"))
+        List<ClassMapping> classes = new ArrayList<>();
+        ClassMapping current = null;
+        try (BufferedReader reader = Files.newBufferedReader(file)) {
+            String rawLine;
+            while ((rawLine = reader.readLine()) != null) {
+                String line = rawLine.trim();
+                if (line.isEmpty()) {
                     continue;
+                }
 
-                if (line.endsWith(":")) {
-                    line = line.replace(":", "").trim();
-                    currentParent = parseClass(line, mappingTree);
-                    String parentPath = mappingTree.findPath(currentParent);
-                    classMappings.put(((MappingTree.ClassNode) currentParent).getObfuscatedName(), parentPath);
-                } else if (currentParent instanceof MappingTree.ClassNode classParent && line.contains("->")) {
-                    MappingTree.ObfuscatedNode node = parseMethodOrField(classParent, line);
-                    currentParent.addChild(node);
-
-                    if (node instanceof MappingTree.MethodNode) {
-                        methodMappings.put(node.getObfuscatedName(), node.getName());
-                    } else if (node instanceof MappingTree.FieldNode) {
-                        fieldMappings.put(node.getObfuscatedName(), node.getName());
+                // Class header: originalName -> obfuscatedName:
+                if (line.endsWith(":") && line.contains(" -> ")) {
+                    String header = line.substring(0, line.length() - 1);
+                    String[] parts = header.split(" -> ", 2);
+                    current = new ClassMapping(parts[0], parts[1]);
+                    classes.add(current);
+                }
+                // Metadata JSON line starting with # {
+                else if (rawLine.trim().startsWith("# {") && current != null) {
+                    String json = rawLine.trim();
+                    try {
+                        // Strip leading '# ' and braces
+                        int start = json.indexOf('{') + 1;
+                        int end = json.lastIndexOf('}');
+                        String body = json.substring(start, end);
+                        String[] entries = body.split(",");
+                        for (String entry : entries) {
+                            String[] kv = entry.split(":", 2);
+                            String key = kv[0].trim().replace("\"", "");
+                            String value = kv[1].trim().replace("\"", "");
+                            if ("fileName".equals(key)) {
+                                current.setFileName(value);
+                            } else if ("id".equals(key)) {
+                                current.setId(value);
+                            }
+                        }
+                    } catch (Exception e) {
+                        // ignore malformed metadata
+                    }
+                }
+                // Member mappings
+                else if (current != null && rawLine.startsWith("    ")) {
+                    String mapping = rawLine.trim();
+                    // Method mapping: start:end:signature -> name
+                    if (mapping.matches("\\d+:\\d+:.+ -> .+")) {
+                        String[] parts = mapping.split(" -> ", 2);
+                        String obfName = parts[1].trim();
+                        String[] left = parts[0].split(":", 3);
+                        int startLine = Integer.parseInt(left[0]);
+                        int endLine = Integer.parseInt(left[1]);
+                        String signature = left[2];
+                        current.addMethodMapping(new MethodMapping(startLine, endLine, signature, obfName));
+                    }
+                    // Field mapping: descriptor name -> obf
+                    else if (mapping.contains(" -> ")) {
+                        String[] parts = mapping.split(" -> ", 2);
+                        String obfName = parts[1].trim();
+                        String[] decl = parts[0].trim().split(" ", 2);
+                        String descriptor = decl[0];
+                        String originalName = decl[1];
+                        current.addFieldMapping(new FieldMapping(descriptor, originalName, obfName));
                     }
                 }
             }
-
-            System.out.printf("Parsed %d lines in %dms%n",
-                    totalLines,
-                    (System.nanoTime() - startRead) / 1_000_000);
-        } catch (IOException exception) {
-            throw new RuntimeException("Failed to read file!", exception);
         }
 
-        return mappingTree;
-    }
-
-    @Override
-    public MappingTree getCachedTree() {
-        return this.mappingTree;
+        CACHE.put(file, new CacheEntry(Collections.unmodifiableList(classes), Files.getLastModifiedTime(file).toMillis()));
+        return classes;
     }
 }
