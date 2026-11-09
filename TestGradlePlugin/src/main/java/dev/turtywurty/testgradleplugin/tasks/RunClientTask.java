@@ -1,118 +1,117 @@
 package dev.turtywurty.testgradleplugin.tasks;
 
-import dev.turtywurty.testgradleplugin.piston.version.Library;
+import dev.turtywurty.testgradleplugin.piston.version.CLIArguments;
+import dev.turtywurty.testgradleplugin.piston.version.Download;
 import dev.turtywurty.testgradleplugin.piston.version.VersionPackage;
-import org.gradle.api.tasks.*;
+import dev.turtywurty.testgradleplugin.util.Downloads;
+import org.gradle.api.file.DirectoryProperty;
+import org.gradle.api.file.RegularFileProperty;
+import org.gradle.api.provider.Property;
+import org.gradle.api.tasks.Input;
+import org.gradle.api.tasks.InputDirectory;
+import org.gradle.api.tasks.InputFile;
+import org.gradle.api.tasks.Internal;
+import org.gradle.api.tasks.JavaExec;
+import org.gradle.api.tasks.Optional;
+import org.gradle.api.tasks.PathSensitive;
+import org.gradle.api.tasks.PathSensitivity;
+import org.gradle.api.tasks.TaskAction;
+import org.gradle.work.DisableCachingByDefault;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
+import java.util.UUID;
+import dev.turtywurty.testgradleplugin.piston.version.Logging;
+import java.util.List;
 
-public class RunClientTask extends DefaultTestGradleTask {
+@DisableCachingByDefault(because = "Starts an interactive game process")
+public abstract class RunClientTask extends JavaExec {
     @InputFile
-    @Classpath
-    private final Path versionJsonPath, librariesJsonPath, clientJarPath;
-
+    @PathSensitive(PathSensitivity.NONE)
+    public abstract RegularFileProperty getVersionJson();
     @InputDirectory
-    @Classpath
-    private final Path assetsDir;
+    @PathSensitive(PathSensitivity.RELATIVE)
+    public abstract DirectoryProperty getAssetsDirectory();
+    @Internal
+    public abstract DirectoryProperty getRunDirectory();
+    @Input
+    public abstract Property<String> getUsername();
+    @Input
+    @Optional
+    public abstract Property<String> getUuid();
+    @Internal
+    public abstract Property<String> getAccessToken();
 
-    @OutputDirectory
-    private final Path runDir;
-
-    public RunClientTask() {
-        Path cacheDir = getCacheDir();
-        Path versionPath = cacheDir.resolve(getMinecraftVersion());
-
-        this.versionJsonPath = versionPath.resolve("version.json");
-        this.librariesJsonPath = versionPath.resolve("libraries.json");
-        this.clientJarPath = versionPath.resolve("client.jar");
-        this.assetsDir = versionPath.resolve("assets");
-
-        Path projectDir = getProject().getProjectDir().toPath();
-        this.runDir = projectDir.resolve("run");
-    }
-
+    @Override
     @TaskAction
-    public void downloadClient() {
-        if (Files.notExists(versionJsonPath))
-            throw new RuntimeException("Version json does not exist!");
-
-        VersionPackage versionPackage = VersionPackage.fromPath(versionJsonPath);
-
-        if (Files.notExists(clientJarPath))
-            throw new RuntimeException("Client jar does not exist!");
-
-        // add client jar to classpath
-        getProject().getDependencies().add("implementation", getProject().files(clientJarPath));
-
-        if (Files.notExists(librariesJsonPath))
-            throw new RuntimeException("Libraries json does not exist!");
-
-        Map<String, Path> libraryJars = new HashMap<>();
+    public void exec() {
         try {
-            Library.readLibraries(libraryJars, librariesJsonPath);
+            prepareLaunch();
         } catch (IOException exception) {
-            throw new RuntimeException("Failed to read libraries json!", exception);
+            throw new IllegalStateException("Failed to prepare Minecraft launch", exception);
         }
 
-        // add libraries to classpath
-        for (Path path : libraryJars.values()) {
-            getProject().getDependencies().add("implementation", getProject().files(path));
-        }
+        super.exec();
+    }
 
-        if (Files.notExists(runDir)) {
-            try {
-                Files.createDirectories(runDir);
-            } catch (IOException exception) {
-                throw new RuntimeException("Failed to create run directory!", exception);
+    private void prepareLaunch() throws IOException {
+        var version = VersionPackage.fromPath(getVersionJson().get().getAsFile().toPath());
+        Path run = getRunDirectory().get().getAsFile().toPath();
+        Path natives = run.resolve("natives");
+        Files.createDirectories(natives);
+        setWorkingDir(run);
+        Map<String, String> values = new HashMap<>();
+        values.put("auth_player_name", getUsername().get());
+        values.put("auth_uuid", getUuid().getOrElse(UUID.nameUUIDFromBytes(
+            ("OfflinePlayer:" + getUsername().get()).getBytes(StandardCharsets.UTF_8)).toString().replace("-", "")));
+        values.put("auth_access_token", getAccessToken().get());
+        values.put("auth_xuid", "");
+        values.put("clientid", "");
+        values.put("user_type", "msa");
+        values.put("user_properties", "{}");
+        values.put("version_name", version.id());
+        values.put("version_type", version.type());
+        values.put("game_directory", run.toAbsolutePath().toString());
+        values.put("assets_root", getAssetsDirectory().get().getAsFile().getAbsolutePath());
+        values.put("assets_index_name", version.assetIndex().id());
+        values.put("natives_directory", natives.toAbsolutePath().toString());
+        values.put("launcher_name", "TestGradlePlugin");
+        values.put("launcher_version", "1.0-SNAPSHOT");
+        values.put("classpath", getClasspath().getAsPath());
+        values.put("classpath_separator", System.getProperty("path.separator"));
+        values.put("library_directory",
+            getVersionJson().get().getAsFile().getParentFile().toPath().resolve("libraries").toString());
+
+        List<String> metadataJvm = version.arguments().jvm().resolve(values);
+        List<String> jvm = new ArrayList<>();
+        for (int index = 0; index < metadataJvm.size(); index++) {
+            String token = metadataJvm.get(index);
+            if (token.equals("-cp") || token.equals("-classpath") || token.equals("--class-path")) {
+                index++;
+            } else {
+                jvm.add(token);
             }
         }
 
-        if (Files.notExists(assetsDir))
-            System.err.println("Assets directory does not exist!");
+        if (version.logging() != null && version.logging().client() != null) {
+            Logging.Client logging = version.logging().client();
+            Logging.Client.LoggingFile file = logging.file();
+            Path output = run.resolve("logging").resolve(file.id());
+            Downloads.fetch(new Download(file.sha1(), file.size(), file.url()), output);
+            jvm.add(CLIArguments.substitute(logging.argument(), Map.of("path", output.toAbsolutePath().toString())));
+        }
 
-        getProject().javaexec(javaExecSpec -> {
-            javaExecSpec.getMainClass().set(versionPackage.mainClass());
-            javaExecSpec.setWorkingDir(runDir.toFile());
+        jvmArgs(jvm);
+        List<String> game = new ArrayList<>(version.arguments().game().resolve(values));
+        if (getArgs() != null) {
+            game.addAll(getArgs());
+        }
 
-            for (Path path : libraryJars.values()) {
-                System.out.println("Library: " + path);
-            }
-
-            List<Path> classpathJars = new ArrayList<>(libraryJars.values());
-            classpathJars.add(clientJarPath);
-            javaExecSpec.setClasspath(getProject().files(classpathJars));
-            javaExecSpec.setArgs(List.of(
-                    "--accessToken", "****",
-                    "--version", getMinecraftVersion(),
-                    "--assetIndex", versionPackage.assetIndex().id(),
-                    "--assetsDir", assetsDir.toAbsolutePath().toString(),
-                    "--userProperties", "{}"));
-        });
-    }
-
-    public Path getVersionJsonPath() {
-        return versionJsonPath;
-    }
-
-    public Path getLibrariesJsonPath() {
-        return librariesJsonPath;
-    }
-
-    public Path getClientJarPath() {
-        return clientJarPath;
-    }
-
-    public Path getAssetsDir() {
-        return assetsDir;
-    }
-
-    public Path getRunDir() {
-        return runDir;
+        setArgs(game);
     }
 }

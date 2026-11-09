@@ -13,14 +13,26 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 
-public record VersionPackage(Arguments arguments, AssetIndex assetIndex, String assets, int complianceLevel,
-                             Downloads downloads, String id, JavaVersion javaVersion, List<Library> libraries,
-                             Logging logging, String mainClass, int minimumLauncherVersion, String releaseTime,
-                             String time, String type) {
+public record VersionPackage(
+    Arguments arguments,
+    AssetIndex assetIndex,
+    String assets,
+    int complianceLevel,
+    Downloads downloads,
+    String id,
+    JavaVersion javaVersion,
+    List<Library> libraries,
+    Logging logging,
+    String mainClass,
+    int minimumLauncherVersion,
+    String releaseTime,
+    String time,
+    String type
+) {
     public static VersionPackage fromJson(JsonObject json) {
         JsonObject argumentsJson = json.getAsJsonObject("arguments");
         JsonArray gameJson = argumentsJson.getAsJsonArray("game");
-        JsonArray jvmJson = json.getAsJsonArray("jvm");
+        JsonArray jvmJson = argumentsJson.getAsJsonArray("jvm");
         CLIArguments gameArguments = CLIArguments.fromJsonArray(gameJson);
         CLIArguments jvmArguments = CLIArguments.fromJsonArray(jvmJson);
         var arguments = new Arguments(gameArguments, jvmArguments);
@@ -52,7 +64,7 @@ public record VersionPackage(Arguments arguments, AssetIndex assetIndex, String 
         String type = json.get("type").getAsString();
 
         return new VersionPackage(arguments, assetIndex, assets, complianceLevel, downloads, id, javaVersion,
-                libraries, logging, mainClass, minimumLauncherVersion, releaseTime, time, type);
+            libraries, logging, mainClass, minimumLauncherVersion, releaseTime, time, type);
     }
 
     public static VersionPackage fromPath(Path path) {

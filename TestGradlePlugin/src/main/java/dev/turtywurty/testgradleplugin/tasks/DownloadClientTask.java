@@ -1,90 +1,29 @@
 package dev.turtywurty.testgradleplugin.tasks;
 
-import dev.turtywurty.testgradleplugin.piston.version.Download;
 import dev.turtywurty.testgradleplugin.piston.version.VersionPackage;
-import org.gradle.api.tasks.*;
+import dev.turtywurty.testgradleplugin.util.Downloads;
+import org.gradle.api.DefaultTask;
+import org.gradle.api.file.RegularFileProperty;
+import org.gradle.api.tasks.InputFile;
+import org.gradle.api.tasks.OutputFile;
+import org.gradle.api.tasks.PathSensitive;
+import org.gradle.api.tasks.PathSensitivity;
+import org.gradle.api.tasks.TaskAction;
+import org.gradle.work.DisableCachingByDefault;
 
 import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.util.Objects;
 
-@CacheableTask
-public class DownloadClientTask extends DefaultTestGradleTask {
+@DisableCachingByDefault(because = "Prepares locally cached Minecraft artifacts")
+public abstract class DownloadClientTask extends DefaultTask {
     @InputFile
-    @Classpath
-    private final Path versionJsonPath;
-
+    @PathSensitive(PathSensitivity.NONE)
+    public abstract RegularFileProperty getVersionJson();
     @OutputFile
-    private final Path clientJarPath, clientHashPath;
-
-    public DownloadClientTask() {
-        Path cacheDir = getCacheDir();
-        Path versionPath = cacheDir.resolve(getMinecraftVersion());
-
-        this.versionJsonPath = versionPath.resolve("version.json");
-        this.clientJarPath = versionPath.resolve("client.jar");
-        this.clientHashPath = versionPath.resolve("client.jar.sha1");
-    }
+    public abstract RegularFileProperty getClientJar();
 
     @TaskAction
-    public void downloadClient() {
-        VersionPackage versionPackage = VersionPackage.fromPath(versionJsonPath);
-        System.out.println("Version package path: " + versionJsonPath);
-
-        // Check if the client hash is already downloaded
-        if (Files.exists(clientHashPath) && Files.exists(clientJarPath)) {
-            String hash = null;
-            try {
-                hash = Files.readString(clientHashPath);
-            } catch (IOException ignored) {
-            }
-
-            if (hash != null) {
-                String jarHash = versionPackage.downloads().client().sha1();
-                System.out.println("Client jar hash: " + jarHash);
-
-                // Check if the client jar hash matches the hash in the version manifest
-                if (Objects.equals(hash, jarHash)) {
-                    System.out.println("SKIPPING DOWNLOAD: Client jar already downloaded!");
-                    return;
-                }
-            }
-        }
-
-        try {
-            Files.deleteIfExists(clientJarPath);
-            Files.deleteIfExists(clientHashPath);
-
-            System.out.println("Client jar hash mismatch! Re-downloading...");
-
-            Download clientDownload = versionPackage.downloads().client();
-            System.out.println("Client download: " + clientDownload.url());
-
-            String clientHash = clientDownload.sha1();
-            System.out.println("Client hash: " + clientHash);
-            Files.writeString(clientHashPath, clientHash);
-
-            Path jarPath = clientDownload.downloadToPath(clientJarPath.getParent(), "client.jar");
-            System.out.println("Client jar downloaded to: " + jarPath);
-
-            Files.move(jarPath, clientJarPath);
-
-            System.out.println("Done!");
-        } catch (IOException exception) {
-            throw new IllegalStateException("Failed to download client jar!", exception);
-        }
-    }
-
-    public Path getVersionJsonPath() {
-        return versionJsonPath;
-    }
-
-    public Path getClientJarPath() {
-        return clientJarPath;
-    }
-
-    public Path getClientHashPath() {
-        return clientHashPath;
+    public void download() throws IOException {
+        var version = VersionPackage.fromPath(getVersionJson().get().getAsFile().toPath());
+        Downloads.fetch(version.downloads().client(), getClientJar().get().getAsFile().toPath());
     }
 }

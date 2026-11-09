@@ -5,6 +5,9 @@ import dev.turtywurty.testgradleplugin.TestGradlePlugin;
 
 public record Logging(Client client) {
     public static Logging fromJson(JsonObject json) {
+        if (json == null || !json.has("client"))
+            return null;
+
         JsonObject clientJson = json.getAsJsonObject("client");
         Client client = Client.fromJson(clientJson);
 

@@ -12,7 +12,8 @@ public class AssetIndexHash {
         this.assets.putAll(assets);
     }
 
-    public AssetIndexHash() {}
+    public AssetIndexHash() {
+    }
 
     public static AssetIndexHash fromJson(JsonObject json) {
         Map<String, AssetObject> assets = new HashMap<>();
@@ -21,9 +22,8 @@ public class AssetIndexHash {
         for (Map.Entry<String, JsonElement> assetEntry : objects.entrySet()) {
             String assetPath = assetEntry.getKey();
             JsonElement assetElement = assetEntry.getValue();
-            if(!assetElement.isJsonObject()) {
+            if (!assetElement.isJsonObject())
                 throw new RuntimeException("Asset element is not a json object! " + assetElement);
-            }
 
             JsonObject assetObject = assetElement.getAsJsonObject();
             assets.put(assetPath, AssetObject.fromJson(assetObject));

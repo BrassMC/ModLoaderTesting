@@ -26,15 +26,21 @@ public enum OperatingSystem {
     }
 
     public static OperatingSystem determineCurrentOperatingSystem() {
-        String osName = System.getProperty("os.name").toLowerCase(Locale.ROOT);
+        return fromName(System.getProperty("os.name"));
+    }
+
+    public static OperatingSystem fromName(String name) {
+        String osName = name.toLowerCase(Locale.ROOT);
+        if (osName.contains("darwin"))
+            return OSX;
+
         for (OperatingSystem operatingSystem : values()) {
-            if (operatingSystem.name.equals(osName))
+            if (osName.contains(operatingSystem.name))
                 return operatingSystem;
 
             for (String alias : operatingSystem.aliases) {
-                if (osName.contains(alias)) {
+                if (osName.contains(alias))
                     return operatingSystem;
-                }
             }
         }
 

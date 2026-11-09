@@ -1,7 +1,7 @@
 plugins {
     id 'java-gradle-plugin'
+    id 'dev.railroadide.quality' version '1.1.0'
     id 'maven-publish'
-    id 'org.gradle.gradle-profiler' version '0.0.1'
     id 'idea'
 }
 
@@ -19,12 +19,25 @@ gradlePlugin {
 
 repositories {
     mavenCentral()
-    mavenLocal()
 }
 
 dependencies {
-    implementation 'org.vineflower:vineflower:1.10.0+local'
     implementation 'com.google.code.gson:gson:2.10.1'
-    implementation 'org.ow2.asm:asm:9.5'
-    implementation 'org.ow2.asm:asm-commons:9.5'
+    testImplementation gradleTestKit()
+    testImplementation 'org.junit.jupiter:junit-jupiter:5.13.4'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(25)
+    }
+}
+
+test {
+    useJUnitPlatform()
+}
+
+tasks.named('check') {
+    dependsOn('formatCheck')
 }

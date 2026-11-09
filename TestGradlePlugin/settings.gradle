@@ -1,9 +1,20 @@
+pluginManagement {
+    repositories {
+        maven {
+            name = 'Railroad'
+            url = uri('https://maven.railroadide.dev/releases')
+            content { includeGroupAndSubgroups('dev.railroadide') }
+        }
+        gradlePluginPortal()
+        mavenCentral()
+    }
+}
+
 rootProject.name = 'TestGradlePlugin'
 
 buildCache {
     local {
         // set directory to the default location + a subdirectory
         directory = file("${rootProject.projectDir}/build-cache")
-        removeUnusedEntriesAfterDays = 30
     }
 }
